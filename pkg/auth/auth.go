@@ -1,0 +1,132 @@
+package auth
+
+import (
+	"crypto/subtle"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+)
+
+// APIKey represents an authenticated API client.
+type APIKey struct {
+	Key         string   `json:"key"`
+	Name        string   `json:"name"`         // human-readable name
+	OrgID       string   `json:"org_id"`       // organization
+	Permissions []string `json:"permissions"`   // read, trade, admin
+	RateLimit   int      `json:"rate_limit"`    // requests per minute
+	CreatedAt   time.Time `json:"created_at"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+}
+
+// Store holds API keys. In production, back this with a database.
+type Store struct {
+	mu   sync.RWMutex
+	keys map[string]*APIKey // key -> APIKey
+}
+
+func NewStore() *Store {
+	return &Store{keys: make(map[string]*APIKey)}
+}
+
+// Add registers an API key.
+func (s *Store) Add(k *APIKey) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.keys[k.Key] = k
+}
+
+// Validate checks an API key and returns the associated client.
+func (s *Store) Validate(key string) (*APIKey, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for storedKey, ak := range s.keys {
+		if subtle.ConstantTimeCompare([]byte(key), []byte(storedKey)) == 1 {
+			if ak.ExpiresAt != nil && time.Now().After(*ak.ExpiresAt) {
+				return nil, false
+			}
+			return ak, true
+		}
+	}
+	return nil, false
+}
+
+// HasPermission checks if an API key has a specific permission.
+func (ak *APIKey) HasPermission(perm string) bool {
+	for _, p := range ak.Permissions {
+		if p == perm || p == "admin" {
+			return true
+		}
+	}
+	return false
+}
+
+// Middleware returns an HTTP middleware that validates API keys.
+// Keys can be passed as:
+//   - Authorization: Bearer <key>
+//   - X-API-Key: <key>
+func Middleware(store *Store) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Skip auth for health check
+			if r.URL.Path == "/healthz" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			key := extractAPIKey(r)
+			if key == "" {
+				// Allow unauthenticated access in dev mode
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			ak, valid := store.Validate(key)
+			if !valid {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				w.Write([]byte(`{"error":"invalid or expired API key"}`))
+				return
+			}
+
+			// Store API key info in request context via header (simple approach)
+			r.Header.Set("X-Org-ID", ak.OrgID)
+			r.Header.Set("X-API-Key-Name", ak.Name)
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// RequirePermission returns middleware that checks for a specific permission.
+func RequirePermission(store *Store, perm string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			key := extractAPIKey(r)
+			if key == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			ak, valid := store.Validate(key)
+			if !valid || !ak.HasPermission(perm) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				w.Write([]byte(`{"error":"insufficient permissions"}`))
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func extractAPIKey(r *http.Request) string {
+	// Check Authorization header
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "Bearer ") {
+		return strings.TrimPrefix(auth, "Bearer ")
+	}
+	// Check X-API-Key header
+	if key := r.Header.Get("X-API-Key"); key != "" {
+		return key
+	}
+	return ""
+}

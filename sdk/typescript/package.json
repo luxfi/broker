@@ -1,0 +1,29 @@
+{
+  "name": "@luxfi/broker",
+  "version": "0.1.0",
+  "description": "Lux Broker API client — unified access to Alpaca, IBKR, BitGo, FalconX, Finix",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./compat/alpaca": {
+      "import": "./dist/compat/alpaca.js",
+      "types": "./dist/compat/alpaca.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}
