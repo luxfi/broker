@@ -15,6 +15,7 @@ import (
 
 	"github.com/luxfi/broker/pkg/audit"
 	"github.com/luxfi/broker/pkg/auth"
+	"github.com/luxfi/broker/pkg/funding"
 	"github.com/luxfi/broker/pkg/marketdata"
 	"github.com/luxfi/broker/pkg/provider"
 	"github.com/luxfi/broker/pkg/risk"
@@ -31,6 +32,7 @@ type Server struct {
 	authStore *auth.Store
 	feed      *marketdata.Feed
 	stream    *ws.Server
+	funding   *funding.Service
 	router    chi.Router
 	server    *http.Server
 }
@@ -78,7 +80,7 @@ func NewServer(registry *provider.Registry, listenAddr string) *Server {
 		})
 	})
 
-	r.Route("/api/v1", func(r chi.Router) {
+	r.Route("/v1", func(r chi.Router) {
 		r.Get("/providers", s.handleListProviders)
 		r.Get("/providers/capabilities", s.handleGetCapabilities)
 
@@ -129,6 +131,14 @@ func NewServer(registry *provider.Registry, listenAddr string) *Server {
 		r.Get("/audit", s.handleAuditQuery)
 		r.Get("/audit/stats", s.handleAuditStats)
 		r.Get("/audit/export", s.handleAuditExport)
+
+		// Funding (deposit/withdraw via payment processors)
+		r.Route("/fund", func(r chi.Router) {
+			r.Post("/deposit", s.handleDeposit)
+			r.Post("/withdraw", s.handleWithdraw)
+			r.Post("/webhook/{processor}", s.handleFundingWebhook)
+			r.Get("/processors", s.handleListProcessors)
+		})
 	})
 
 	s.router = r
@@ -148,6 +158,11 @@ func (s *Server) Start() error {
 
 func (s *Server) Shutdown(ctx context.Context) error {
 	return s.server.Shutdown(ctx)
+}
+
+// SetFunding attaches a funding service for deposit/withdraw operations.
+func (s *Server) SetFunding(f *funding.Service) {
+	s.funding = f
 }
 
 func (s *Server) getProvider(r *http.Request) (provider.Provider, error) {

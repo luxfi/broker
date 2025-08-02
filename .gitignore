@@ -1,4 +1,4 @@
-brokerd
+/brokerd
 .env
 *.exe
 node_modules/
