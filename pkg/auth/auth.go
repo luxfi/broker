@@ -3,6 +3,7 @@ package auth
 import (
 	"crypto/subtle"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -76,8 +77,13 @@ func Middleware(store *Store) func(http.Handler) http.Handler {
 
 			key := extractAPIKey(r)
 			if key == "" {
-				// Allow unauthenticated access in dev mode
-				next.ServeHTTP(w, r)
+				if os.Getenv("BROKER_DEV_MODE") == "true" {
+					next.ServeHTTP(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				w.Write([]byte(`{"error":"API key required"}`))
 				return
 			}
 
@@ -103,7 +109,13 @@ func RequirePermission(store *Store, perm string) func(http.Handler) http.Handle
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			key := extractAPIKey(r)
 			if key == "" {
-				next.ServeHTTP(w, r)
+				if os.Getenv("BROKER_DEV_MODE") == "true" {
+					next.ServeHTTP(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				w.Write([]byte(`{"error":"API key required"}`))
 				return
 			}
 			ak, valid := store.Validate(key)

@@ -86,15 +86,33 @@ type Order struct {
 
 // CreateOrderRequest is the unified order creation request.
 type CreateOrderRequest struct {
-	AccountID   string `json:"account_id"`
-	Symbol      string `json:"symbol"`
-	Qty         string `json:"qty,omitempty"`
-	Notional    string `json:"notional,omitempty"`
-	Side        string `json:"side"`
-	Type        string `json:"type"`
-	TimeInForce string `json:"time_in_force"`
-	LimitPrice  string `json:"limit_price,omitempty"`
-	StopPrice   string `json:"stop_price,omitempty"`
+	AccountID     string      `json:"account_id"`
+	Symbol        string      `json:"symbol"`
+	Qty           string      `json:"qty,omitempty"`
+	Notional      string      `json:"notional,omitempty"`
+	Side          string      `json:"side"`
+	Type          string      `json:"type"`
+	TimeInForce   string      `json:"time_in_force"`
+	LimitPrice    string      `json:"limit_price,omitempty"`
+	StopPrice     string      `json:"stop_price,omitempty"`
+	ClientOrderID string      `json:"client_order_id,omitempty"`
+	TrailPrice    string      `json:"trail_price,omitempty"`
+	TrailPercent  string      `json:"trail_percent,omitempty"`
+	ExtendedHours bool        `json:"extended_hours,omitempty"`
+	OrderClass    string      `json:"order_class,omitempty"` // simple, bracket, oco, oto
+	TakeProfit    *TakeProfit `json:"take_profit,omitempty"`
+	StopLoss      *StopLoss   `json:"stop_loss,omitempty"`
+}
+
+// TakeProfit for bracket orders.
+type TakeProfit struct {
+	LimitPrice string `json:"limit_price"`
+}
+
+// StopLoss for bracket orders.
+type StopLoss struct {
+	StopPrice  string `json:"stop_price"`
+	LimitPrice string `json:"limit_price,omitempty"`
 }
 
 // Asset is a tradable instrument.
@@ -202,12 +220,44 @@ type MarketCalendarDay struct {
 
 // CreateAccountRequest for onboarding.
 type CreateAccountRequest struct {
-	Provider     string    `json:"provider"` // which broker to use
-	OrgID        string    `json:"-"`        // set from auth context
-	UserID       string    `json:"-"`
-	Identity     *Identity `json:"identity"`
-	Contact      *Contact  `json:"contact"`
-	EnabledAssets []string `json:"enabled_assets,omitempty"`
+	Provider      string             `json:"provider"` // which broker to use
+	OrgID         string             `json:"-"`        // set from auth context
+	UserID        string             `json:"-"`
+	Identity      *Identity          `json:"identity"`
+	Contact       *Contact           `json:"contact"`
+	EnabledAssets []string           `json:"enabled_assets,omitempty"`
+	IPAddress     string             `json:"ip_address,omitempty"`
+	FundingSources []string          `json:"funding_source,omitempty"`
+	Disclosures   *AccountDisclosures `json:"disclosures,omitempty"`
+}
+
+// AccountDisclosures contains regulatory disclosure fields for account creation.
+type AccountDisclosures struct {
+	IsControlPerson            *bool `json:"is_control_person,omitempty"`
+	IsAffiliatedExchangeFinra  *bool `json:"is_affiliated_exchange_or_finra,omitempty"`
+	IsPoliticallyExposed       *bool `json:"is_politically_exposed,omitempty"`
+	ImmediateFamilyExposed     *bool `json:"immediate_family_exposed,omitempty"`
+}
+
+// ReplaceOrderRequest for modifying an existing order.
+type ReplaceOrderRequest struct {
+	Qty           *float64 `json:"qty,omitempty"`
+	TimeInForce   string   `json:"time_in_force,omitempty"`
+	LimitPrice    *float64 `json:"limit_price,omitempty"`
+	StopPrice     *float64 `json:"stop_price,omitempty"`
+	TrailPrice    *float64 `json:"trail_price,omitempty"`
+	TrailPercent  *float64 `json:"trail_percent,omitempty"`
+	ClientOrderID string   `json:"client_order_id,omitempty"`
+}
+
+// ListOrdersParams controls order listing pagination and filtering.
+type ListOrdersParams struct {
+	Status    string `json:"status,omitempty"`    // open, closed, all
+	Limit     int    `json:"limit,omitempty"`
+	After     string `json:"after,omitempty"`     // cursor for pagination
+	Until     string `json:"until,omitempty"`     // filter by date
+	Direction string `json:"direction,omitempty"` // asc, desc
+	Nested    bool   `json:"nested,omitempty"`    // include nested multi-leg orders
 }
 
 // --- Smart Order Routing Types ---
@@ -300,4 +350,337 @@ type ProviderFees struct {
 	Provider string  `json:"provider"`
 	MakerBps float64 `json:"maker_bps"` // maker fee in basis points
 	TakerBps float64 `json:"taker_bps"` // taker fee in basis points
+}
+
+// --- Account Management Types ---
+
+// UpdateAccountRequest for modifying account details.
+type UpdateAccountRequest struct {
+	Contact       *Contact  `json:"contact,omitempty"`
+	Identity      *Identity `json:"identity,omitempty"`
+	EnabledAssets []string  `json:"enabled_assets,omitempty"`
+}
+
+// Activity represents an account activity (fill, dividend, fee, etc).
+type Activity struct {
+	ID               string `json:"id"`
+	AccountID        string `json:"account_id"`
+	ActivityType     string `json:"activity_type"`
+	Symbol           string `json:"symbol,omitempty"`
+	Side             string `json:"side,omitempty"`
+	Qty              string `json:"qty,omitempty"`
+	Price            string `json:"price,omitempty"`
+	CumQty           string `json:"cum_qty,omitempty"`
+	LeavesQty        string `json:"leaves_qty,omitempty"`
+	NetAmount        string `json:"net_amount,omitempty"`
+	PerShareAmount   string `json:"per_share_amount,omitempty"`
+	Description      string `json:"description,omitempty"`
+	Status           string `json:"status,omitempty"`
+	TransactionTime  string `json:"transaction_time,omitempty"`
+	Date             string `json:"date,omitempty"`
+}
+
+// ActivityParams for filtering account activities.
+type ActivityParams struct {
+	ActivityTypes []string `json:"activity_types,omitempty"`
+	Date          string   `json:"date,omitempty"`
+	After         string   `json:"after,omitempty"`
+	Until         string   `json:"until,omitempty"`
+	Direction     string   `json:"direction,omitempty"` // asc, desc
+	PageSize      int      `json:"page_size,omitempty"`
+	PageToken     string   `json:"page_token,omitempty"`
+}
+
+// --- Document Types ---
+
+// DocumentUpload for uploading account documents (W8-BEN, identity, etc).
+type DocumentUpload struct {
+	DocumentType    string `json:"document_type"`
+	DocumentSubType string `json:"document_sub_type,omitempty"`
+	Content         string `json:"content"`      // base64-encoded file content
+	MimeType        string `json:"mime_type"`
+}
+
+// Document represents an uploaded or generated document.
+type Document struct {
+	ID              string `json:"id"`
+	DocumentType    string `json:"document_type"`
+	DocumentSubType string `json:"document_sub_type,omitempty"`
+	Name            string `json:"name,omitempty"`
+	Status          string `json:"status,omitempty"`
+	CreatedAt       string `json:"created_at,omitempty"`
+}
+
+// DocumentParams for filtering documents.
+type DocumentParams struct {
+	Start string `json:"start,omitempty"`
+	End   string `json:"end,omitempty"`
+}
+
+// --- Journal Types ---
+
+// CreateJournalRequest for moving assets between accounts.
+type CreateJournalRequest struct {
+	EntryType     string `json:"entry_type"`     // JNLC (cash) or JNLS (security)
+	FromAccount   string `json:"from_account"`
+	ToAccount     string `json:"to_account"`
+	Amount        string `json:"amount,omitempty"`  // for JNLC
+	Symbol        string `json:"symbol,omitempty"`  // for JNLS
+	Qty           string `json:"qty,omitempty"`     // for JNLS
+	Description   string `json:"description,omitempty"`
+}
+
+// Journal represents a journal entry (inter-account transfer).
+type Journal struct {
+	ID            string `json:"id"`
+	EntryType     string `json:"entry_type"`
+	FromAccount   string `json:"from_account"`
+	ToAccount     string `json:"to_account"`
+	Symbol        string `json:"symbol,omitempty"`
+	Qty           string `json:"qty,omitempty"`
+	Price         string `json:"price,omitempty"`
+	Amount        string `json:"amount,omitempty"`  // net_amount for JNLC
+	Status        string `json:"status"`
+	Description   string `json:"description,omitempty"`
+	SettleDate    string `json:"settle_date,omitempty"`
+	SystemDate    string `json:"system_date,omitempty"`
+	CreatedAt     string `json:"created_at,omitempty"`
+}
+
+// JournalParams for filtering journals.
+type JournalParams struct {
+	After         string `json:"after,omitempty"`
+	Before        string `json:"before,omitempty"`
+	Status        string `json:"status,omitempty"`
+	EntryType     string `json:"entry_type,omitempty"`
+	ToAccount     string `json:"to_account,omitempty"`
+	FromAccount   string `json:"from_account,omitempty"`
+}
+
+// BatchJournalRequest for creating multiple journal entries at once.
+type BatchJournalRequest struct {
+	EntryType   string             `json:"entry_type"`
+	FromAccount string             `json:"from_account"`
+	Entries     []BatchJournalEntry `json:"entries"`
+	Description string             `json:"description,omitempty"`
+}
+
+// BatchJournalEntry is a single entry in a batch journal.
+type BatchJournalEntry struct {
+	ToAccount string `json:"to_account"`
+	Amount    string `json:"amount,omitempty"`
+	Symbol    string `json:"symbol,omitempty"`
+	Qty       string `json:"qty,omitempty"`
+}
+
+// ReverseBatchJournalRequest for reversing batch journal entries.
+type ReverseBatchJournalRequest struct {
+	EntryType   string             `json:"entry_type"`
+	FromAccount string             `json:"from_account"`
+	Entries     []BatchJournalEntry `json:"entries"`
+	Description string             `json:"description,omitempty"`
+}
+
+// --- Wire / Recipient Bank Types ---
+
+// CreateBankRequest for creating a wire recipient bank.
+type CreateBankRequest struct {
+	Name             string `json:"name"`
+	BankCode         string `json:"bank_code"`
+	BankCodeType     string `json:"bank_code_type"` // ABA, BIC
+	Country          string `json:"country,omitempty"`
+	StateProvince    string `json:"state_province,omitempty"`
+	PostalCode       string `json:"postal_code,omitempty"`
+	City             string `json:"city,omitempty"`
+	StreetAddress    string `json:"street_address,omitempty"`
+	AccountNumber    string `json:"account_number"`
+}
+
+// RecipientBank represents a wire transfer recipient bank.
+type RecipientBank struct {
+	ID            string `json:"id"`
+	AccountID     string `json:"account_id"`
+	Name          string `json:"name"`
+	Status        string `json:"status"`
+	Country       string `json:"country,omitempty"`
+	StateProvince string `json:"state_province,omitempty"`
+	PostalCode    string `json:"postal_code,omitempty"`
+	City          string `json:"city,omitempty"`
+	StreetAddress string `json:"street_address,omitempty"`
+	AccountNumber string `json:"account_number,omitempty"`
+	BankCode      string `json:"bank_code,omitempty"`
+	BankCodeType  string `json:"bank_code_type,omitempty"`
+	CreatedAt     string `json:"created_at,omitempty"`
+}
+
+// --- Crypto Market Data Types ---
+
+// CryptoBarsRequest for fetching crypto historical bars.
+type CryptoBarsRequest struct {
+	Symbols   []string `json:"symbols"`
+	Timeframe string   `json:"timeframe"`
+	Start     string   `json:"start,omitempty"`
+	End       string   `json:"end,omitempty"`
+	Limit     int      `json:"limit,omitempty"`
+	PageToken string   `json:"page_token,omitempty"`
+}
+
+// CryptoQuotesRequest for fetching crypto quotes.
+type CryptoQuotesRequest struct {
+	Symbols   []string `json:"symbols"`
+	Start     string   `json:"start,omitempty"`
+	End       string   `json:"end,omitempty"`
+	Limit     int      `json:"limit,omitempty"`
+	PageToken string   `json:"page_token,omitempty"`
+}
+
+// CryptoTradesRequest for fetching crypto trades.
+type CryptoTradesRequest struct {
+	Symbols   []string `json:"symbols"`
+	Start     string   `json:"start,omitempty"`
+	End       string   `json:"end,omitempty"`
+	Limit     int      `json:"limit,omitempty"`
+	PageToken string   `json:"page_token,omitempty"`
+}
+
+// BarsResponse contains paginated bars data.
+type BarsResponse struct {
+	Bars          map[string][]*Bar `json:"bars"`
+	NextPageToken string            `json:"next_page_token,omitempty"`
+}
+
+// QuotesResponse contains paginated quotes data.
+type QuotesResponse struct {
+	Quotes        map[string][]*Quote `json:"quotes"`
+	NextPageToken string              `json:"next_page_token,omitempty"`
+}
+
+// TradesResponse contains paginated trades data.
+type TradesResponse struct {
+	Trades        map[string][]*Trade `json:"trades"`
+	NextPageToken string              `json:"next_page_token,omitempty"`
+}
+
+// CryptoSnapshot is a crypto-specific snapshot.
+type CryptoSnapshot struct {
+	LatestTrade *Trade `json:"latest_trade,omitempty"`
+	LatestQuote *Quote `json:"latest_quote,omitempty"`
+	MinuteBar   *Bar   `json:"minute_bar,omitempty"`
+	DailyBar    *Bar   `json:"daily_bar,omitempty"`
+	PrevDailyBar *Bar  `json:"prev_daily_bar,omitempty"`
+}
+
+// --- Event Streaming Types ---
+
+// TradeEvent is emitted when a trade order changes state.
+type TradeEvent struct {
+	EventType string `json:"event_type"` // new, fill, partial_fill, canceled, expired, etc.
+	EventID   string `json:"event_id"`
+	AccountID string `json:"account_id"`
+	Order     *Order `json:"order,omitempty"`
+	Timestamp string `json:"timestamp"`
+}
+
+// AccountEvent is emitted when an account status changes.
+type AccountEvent struct {
+	EventType string   `json:"event_type"` // ACCOUNT_UPDATED, ACCOUNT_APPROVED, etc.
+	EventID   string   `json:"event_id"`
+	AccountID string   `json:"account_id"`
+	Account   *Account `json:"account,omitempty"`
+	Timestamp string   `json:"timestamp"`
+}
+
+// TransferEvent is emitted when a transfer changes state.
+type TransferEvent struct {
+	EventType  string    `json:"event_type"`
+	EventID    string    `json:"event_id"`
+	AccountID  string    `json:"account_id"`
+	Transfer   *Transfer `json:"transfer,omitempty"`
+	Timestamp  string    `json:"timestamp"`
+}
+
+// JournalEvent is emitted when a journal changes state.
+type JournalEvent struct {
+	EventType string   `json:"event_type"`
+	EventID   string   `json:"event_id"`
+	Journal   *Journal `json:"journal,omitempty"`
+	Timestamp string   `json:"timestamp"`
+}
+
+// --- Portfolio History Types ---
+
+// PortfolioHistory is a time series of portfolio equity.
+type PortfolioHistory struct {
+	Timestamp     []int64   `json:"timestamp"`
+	Equity        []float64 `json:"equity"`
+	ProfitLoss    []float64 `json:"profit_loss"`
+	ProfitLossPct []float64 `json:"profit_loss_pct"`
+	BaseValue     float64   `json:"base_value"`
+	Timeframe     string    `json:"timeframe"`
+}
+
+// HistoryParams for fetching portfolio history.
+type HistoryParams struct {
+	Period       string `json:"period,omitempty"`       // 1D, 1W, 1M, 3M, 1A, all
+	Timeframe    string `json:"timeframe,omitempty"`    // 1Min, 5Min, 15Min, 1H, 1D
+	DateEnd      string `json:"date_end,omitempty"`
+	ExtendedHours bool  `json:"extended_hours,omitempty"`
+}
+
+// --- Watchlist Types ---
+
+// Watchlist is a named list of tracked symbols.
+type Watchlist struct {
+	ID        string           `json:"id"`
+	AccountID string           `json:"account_id"`
+	Name      string           `json:"name"`
+	Assets    []WatchlistAsset `json:"assets,omitempty"`
+	CreatedAt string           `json:"created_at,omitempty"`
+	UpdatedAt string           `json:"updated_at,omitempty"`
+}
+
+// WatchlistAsset is an asset within a watchlist.
+type WatchlistAsset struct {
+	ID     string `json:"id"`
+	Symbol string `json:"symbol"`
+	Name   string `json:"name,omitempty"`
+	Class  string `json:"class,omitempty"`
+}
+
+// CreateWatchlistRequest for creating a watchlist.
+type CreateWatchlistRequest struct {
+	Name    string   `json:"name"`
+	Symbols []string `json:"symbols,omitempty"`
+}
+
+// UpdateWatchlistRequest for modifying a watchlist.
+type UpdateWatchlistRequest struct {
+	Name    string   `json:"name,omitempty"`
+	Symbols []string `json:"symbols,omitempty"`
+}
+
+// --- Corporate Action Types ---
+
+// CorporateAction represents a corporate action event (dividend, split, etc).
+type CorporateAction struct {
+	ID              string `json:"id"`
+	Type            string `json:"type"` // dividend, split, merger, spinoff
+	Symbol          string `json:"symbol"`
+	SubType         string `json:"sub_type,omitempty"`
+	Description     string `json:"description,omitempty"`
+	RecordDate      string `json:"record_date,omitempty"`
+	ExDate          string `json:"ex_date,omitempty"`
+	PayableDate     string `json:"payable_date,omitempty"`
+	ProcessDate     string `json:"process_date,omitempty"`
+	NewRate         string `json:"new_rate,omitempty"`
+	OldRate         string `json:"old_rate,omitempty"`
+	CashAmount      string `json:"cash_amount,omitempty"`
+}
+
+// CorporateActionParams for filtering corporate actions.
+type CorporateActionParams struct {
+	Types  []string `json:"types,omitempty"` // dividend, split, merger, spinoff
+	Since  string   `json:"since,omitempty"`
+	Until  string   `json:"until,omitempty"`
+	Symbol string   `json:"symbol,omitempty"`
 }
