@@ -183,6 +183,38 @@ func (a *alpacaAccount) toUnified() *types.Account {
 }
 
 func (p *Provider) CreateAccount(ctx context.Context, req *types.CreateAccountRequest) (*types.Account, error) {
+	// Use request values with sensible defaults for compliance fields
+	fundingSources := req.FundingSources
+	if len(fundingSources) == 0 {
+		fundingSources = []string{"employment_income"}
+	}
+
+	ipAddress := req.IPAddress
+	if ipAddress == "" {
+		ipAddress = "0.0.0.0"
+	}
+
+	// Disclosures: use request values if provided, default to false
+	isControlPerson := false
+	isAffiliatedExchangeFinra := false
+	isPoliticallyExposed := false
+	immediateFamilyExposed := false
+	if req.Disclosures != nil {
+		if req.Disclosures.IsControlPerson != nil {
+			isControlPerson = *req.Disclosures.IsControlPerson
+		}
+		if req.Disclosures.IsAffiliatedExchangeFinra != nil {
+			isAffiliatedExchangeFinra = *req.Disclosures.IsAffiliatedExchangeFinra
+		}
+		if req.Disclosures.IsPoliticallyExposed != nil {
+			isPoliticallyExposed = *req.Disclosures.IsPoliticallyExposed
+		}
+		if req.Disclosures.ImmediateFamilyExposed != nil {
+			immediateFamilyExposed = *req.Disclosures.ImmediateFamilyExposed
+		}
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
 	body := map[string]interface{}{
 		"contact": map[string]interface{}{
 			"email_address":  req.Contact.Email,
@@ -194,25 +226,25 @@ func (p *Provider) CreateAccount(ctx context.Context, req *types.CreateAccountRe
 			"country":        req.Contact.Country,
 		},
 		"identity": map[string]interface{}{
-			"given_name":                 req.Identity.GivenName,
-			"family_name":               req.Identity.FamilyName,
-			"date_of_birth":             req.Identity.DateOfBirth,
-			"tax_id":                    req.Identity.TaxID,
-			"tax_id_type":               req.Identity.TaxIDType,
-			"country_of_tax_residence":  req.Identity.CountryOfTax,
-			"funding_source":            []string{"employment_income"},
+			"given_name":                req.Identity.GivenName,
+			"family_name":              req.Identity.FamilyName,
+			"date_of_birth":            req.Identity.DateOfBirth,
+			"tax_id":                   req.Identity.TaxID,
+			"tax_id_type":              req.Identity.TaxIDType,
+			"country_of_tax_residence": req.Identity.CountryOfTax,
+			"funding_source":           fundingSources,
 		},
 		"disclosures": map[string]interface{}{
-			"is_control_person":               false,
-			"is_affiliated_exchange_or_finra": false,
-			"is_politically_exposed":          false,
-			"immediate_family_exposed":        false,
+			"is_control_person":               isControlPerson,
+			"is_affiliated_exchange_or_finra": isAffiliatedExchangeFinra,
+			"is_politically_exposed":          isPoliticallyExposed,
+			"immediate_family_exposed":        immediateFamilyExposed,
 		},
 		"agreements": []map[string]interface{}{
-			{"agreement": "margin_agreement", "signed_at": time.Now().UTC().Format(time.RFC3339), "ip_address": "0.0.0.0"},
-			{"agreement": "account_agreement", "signed_at": time.Now().UTC().Format(time.RFC3339), "ip_address": "0.0.0.0"},
-			{"agreement": "customer_agreement", "signed_at": time.Now().UTC().Format(time.RFC3339), "ip_address": "0.0.0.0"},
-			{"agreement": "crypto_agreement", "signed_at": time.Now().UTC().Format(time.RFC3339), "ip_address": "0.0.0.0"},
+			{"agreement": "margin_agreement", "signed_at": now, "ip_address": ipAddress},
+			{"agreement": "account_agreement", "signed_at": now, "ip_address": ipAddress},
+			{"agreement": "customer_agreement", "signed_at": now, "ip_address": ipAddress},
+			{"agreement": "crypto_agreement", "signed_at": now, "ip_address": ipAddress},
 		},
 	}
 	if len(req.EnabledAssets) > 0 {
@@ -340,6 +372,35 @@ func (p *Provider) CreateOrder(ctx context.Context, providerAccountID string, re
 	if req.StopPrice != "" {
 		body["stop_price"] = req.StopPrice
 	}
+	if req.ClientOrderID != "" {
+		body["client_order_id"] = req.ClientOrderID
+	}
+	if req.TrailPrice != "" {
+		body["trail_price"] = req.TrailPrice
+	}
+	if req.TrailPercent != "" {
+		body["trail_percent"] = req.TrailPercent
+	}
+	if req.ExtendedHours {
+		body["extended_hours"] = true
+	}
+	if req.OrderClass != "" {
+		body["order_class"] = req.OrderClass
+	}
+	if req.TakeProfit != nil {
+		body["take_profit"] = map[string]interface{}{
+			"limit_price": req.TakeProfit.LimitPrice,
+		}
+	}
+	if req.StopLoss != nil {
+		sl := map[string]interface{}{
+			"stop_price": req.StopLoss.StopPrice,
+		}
+		if req.StopLoss.LimitPrice != "" {
+			sl["limit_price"] = req.StopLoss.LimitPrice
+		}
+		body["stop_loss"] = sl
+	}
 
 	data, _, err := p.do(ctx, http.MethodPost, "/v1/trading/accounts/"+providerAccountID+"/orders", body)
 	if err != nil {
@@ -349,7 +410,38 @@ func (p *Provider) CreateOrder(ctx context.Context, providerAccountID string, re
 }
 
 func (p *Provider) ListOrders(ctx context.Context, providerAccountID string) ([]*types.Order, error) {
-	data, _, err := p.do(ctx, http.MethodGet, "/v1/trading/accounts/"+providerAccountID+"/orders", nil)
+	return p.ListOrdersFiltered(ctx, providerAccountID, nil)
+}
+
+func (p *Provider) ListOrdersFiltered(ctx context.Context, providerAccountID string, params *types.ListOrdersParams) ([]*types.Order, error) {
+	path := "/v1/trading/accounts/" + providerAccountID + "/orders"
+	sep := "?"
+	if params != nil {
+		if params.Status != "" {
+			path += sep + "status=" + params.Status
+			sep = "&"
+		}
+		if params.Limit > 0 {
+			path += sep + "limit=" + strconv.Itoa(params.Limit)
+			sep = "&"
+		}
+		if params.After != "" {
+			path += sep + "after=" + params.After
+			sep = "&"
+		}
+		if params.Until != "" {
+			path += sep + "until=" + params.Until
+			sep = "&"
+		}
+		if params.Direction != "" {
+			path += sep + "direction=" + params.Direction
+			sep = "&"
+		}
+		if params.Nested {
+			path += sep + "nested=true"
+		}
+	}
+	data, _, err := p.do(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -379,6 +471,107 @@ func (p *Provider) GetOrder(ctx context.Context, providerAccountID, providerOrde
 func (p *Provider) CancelOrder(ctx context.Context, providerAccountID, providerOrderID string) error {
 	_, _, err := p.do(ctx, http.MethodDelete, "/v1/trading/accounts/"+providerAccountID+"/orders/"+providerOrderID, nil)
 	return err
+}
+
+func (p *Provider) ReplaceOrder(ctx context.Context, providerAccountID, providerOrderID string, req *types.ReplaceOrderRequest) (*types.Order, error) {
+	body := make(map[string]interface{})
+	if req.Qty != nil {
+		body["qty"] = fmt.Sprintf("%g", *req.Qty)
+	}
+	if req.TimeInForce != "" {
+		body["time_in_force"] = req.TimeInForce
+	}
+	if req.LimitPrice != nil {
+		body["limit_price"] = fmt.Sprintf("%g", *req.LimitPrice)
+	}
+	if req.StopPrice != nil {
+		body["stop_price"] = fmt.Sprintf("%g", *req.StopPrice)
+	}
+	if req.TrailPrice != nil {
+		body["trail"] = fmt.Sprintf("%g", *req.TrailPrice)
+	}
+	if req.TrailPercent != nil {
+		body["trail_percent"] = fmt.Sprintf("%g", *req.TrailPercent)
+	}
+	if req.ClientOrderID != "" {
+		body["client_order_id"] = req.ClientOrderID
+	}
+	data, _, err := p.do(ctx, http.MethodPatch, "/v1/trading/accounts/"+providerAccountID+"/orders/"+providerOrderID, body)
+	if err != nil {
+		return nil, err
+	}
+	return p.parseOrder(data)
+}
+
+func (p *Provider) CancelAllOrders(ctx context.Context, providerAccountID string) error {
+	_, _, err := p.do(ctx, http.MethodDelete, "/v1/trading/accounts/"+providerAccountID+"/orders", nil)
+	return err
+}
+
+func (p *Provider) GetPosition(ctx context.Context, providerAccountID, symbol string) (*types.Position, error) {
+	data, _, err := p.do(ctx, http.MethodGet, "/v1/trading/accounts/"+providerAccountID+"/positions/"+symbol, nil)
+	if err != nil {
+		return nil, err
+	}
+	return p.parsePosition(data)
+}
+
+func (p *Provider) ClosePosition(ctx context.Context, providerAccountID, symbol string, qty *float64) (*types.Order, error) {
+	path := "/v1/trading/accounts/" + providerAccountID + "/positions/" + symbol
+	if qty != nil {
+		path += "?qty=" + fmt.Sprintf("%g", *qty)
+	}
+	data, _, err := p.do(ctx, http.MethodDelete, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	return p.parseOrder(data)
+}
+
+func (p *Provider) CloseAllPositions(ctx context.Context, providerAccountID string) ([]*types.Order, error) {
+	data, _, err := p.do(ctx, http.MethodDelete, "/v1/trading/accounts/"+providerAccountID+"/positions", nil)
+	if err != nil {
+		return nil, err
+	}
+	var raw []json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+	orders := make([]*types.Order, 0, len(raw))
+	for _, r := range raw {
+		o, err := p.parseOrder(r)
+		if err != nil {
+			continue
+		}
+		orders = append(orders, o)
+	}
+	return orders, nil
+}
+
+func (p *Provider) parsePosition(data []byte) (*types.Position, error) {
+	var raw struct {
+		Symbol        string `json:"symbol"`
+		Qty           string `json:"qty"`
+		AvgEntryPrice string `json:"avg_entry_price"`
+		MarketValue   string `json:"market_value"`
+		CurrentPrice  string `json:"current_price"`
+		UnrealizedPL  string `json:"unrealized_pl"`
+		Side          string `json:"side"`
+		AssetClass    string `json:"asset_class"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+	return &types.Position{
+		Symbol:        raw.Symbol,
+		Qty:           raw.Qty,
+		AvgEntryPrice: raw.AvgEntryPrice,
+		MarketValue:   raw.MarketValue,
+		CurrentPrice:  raw.CurrentPrice,
+		UnrealizedPL:  raw.UnrealizedPL,
+		Side:          raw.Side,
+		AssetClass:    raw.AssetClass,
+	}, nil
 }
 
 func (p *Provider) parseOrder(data []byte) (*types.Order, error) {
@@ -636,6 +829,19 @@ func (p *Provider) GetAsset(ctx context.Context, symbolOrID string) (*types.Asse
 
 // --- Market Data (uses data API, sandbox-aware) ---
 
+// isCryptoSymbol returns true for crypto pairs (e.g. "BTC/USD").
+func isCryptoSymbol(symbol string) bool {
+	return strings.Contains(symbol, "/")
+}
+
+// stocksOrCryptoPath returns the correct base path for market data requests.
+func stocksOrCryptoPath(symbol string) string {
+	if isCryptoSymbol(symbol) {
+		return "/v1beta3/crypto/us"
+	}
+	return "/v2/stocks"
+}
+
 func (p *Provider) doData(ctx context.Context, method, path string) ([]byte, int, error) {
 	req, err := http.NewRequestWithContext(ctx, method, p.dataURL+path, nil)
 	if err != nil {
@@ -661,7 +867,8 @@ func (p *Provider) doData(ctx context.Context, method, path string) ([]byte, int
 }
 
 func (p *Provider) GetSnapshot(ctx context.Context, symbol string) (*types.MarketSnapshot, error) {
-	data, _, err := p.doData(ctx, http.MethodGet, "/v2/stocks/"+symbol+"/snapshot")
+	basePath := stocksOrCryptoPath(symbol)
+	data, _, err := p.doData(ctx, http.MethodGet, basePath+"/"+symbol+"/snapshot")
 	if err != nil {
 		return nil, err
 	}
@@ -669,23 +876,70 @@ func (p *Provider) GetSnapshot(ctx context.Context, symbol string) (*types.Marke
 }
 
 func (p *Provider) GetSnapshots(ctx context.Context, symbols []string) (map[string]*types.MarketSnapshot, error) {
-	path := "/v2/stocks/snapshots?symbols=" + strings.Join(symbols, ",")
-	data, _, err := p.doData(ctx, http.MethodGet, path)
-	if err != nil {
-		return nil, err
-	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, err
-	}
-	result := make(map[string]*types.MarketSnapshot, len(raw))
-	for sym, d := range raw {
-		snap, err := p.parseSnapshot(sym, d)
-		if err != nil {
-			continue
+	// Split symbols into stock and crypto groups.
+	var stocks, cryptos []string
+	for _, s := range symbols {
+		if isCryptoSymbol(s) {
+			cryptos = append(cryptos, s)
+		} else {
+			stocks = append(stocks, s)
 		}
-		result[sym] = snap
 	}
+
+	result := make(map[string]*types.MarketSnapshot)
+
+	if len(stocks) > 0 {
+		path := "/v2/stocks/snapshots?symbols=" + strings.Join(stocks, ",")
+		data, _, err := p.doData(ctx, http.MethodGet, path)
+		if err != nil {
+			return nil, err
+		}
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return nil, err
+		}
+		for sym, d := range raw {
+			snap, err := p.parseSnapshot(sym, d)
+			if err != nil {
+				continue
+			}
+			result[sym] = snap
+		}
+	}
+
+	if len(cryptos) > 0 {
+		path := "/v1beta3/crypto/us/snapshots?symbols=" + strings.Join(cryptos, ",")
+		data, _, err := p.doData(ctx, http.MethodGet, path)
+		if err != nil {
+			return nil, err
+		}
+		var wrapper struct {
+			Snapshots map[string]json.RawMessage `json:"snapshots"`
+		}
+		if err := json.Unmarshal(data, &wrapper); err != nil {
+			// Try direct map (API format varies)
+			var raw map[string]json.RawMessage
+			if err2 := json.Unmarshal(data, &raw); err2 != nil {
+				return nil, err
+			}
+			for sym, d := range raw {
+				snap, err := p.parseSnapshot(sym, d)
+				if err != nil {
+					continue
+				}
+				result[sym] = snap
+			}
+		} else {
+			for sym, d := range wrapper.Snapshots {
+				snap, err := p.parseSnapshot(sym, d)
+				if err != nil {
+					continue
+				}
+				result[sym] = snap
+			}
+		}
+	}
+
 	return result, nil
 }
 
@@ -759,87 +1013,184 @@ func (p *Provider) parseSnapshot(symbol string, data []byte) (*types.MarketSnaps
 }
 
 func (p *Provider) GetBars(ctx context.Context, symbol, timeframe, start, end string, limit int) ([]*types.Bar, error) {
-	path := "/v2/stocks/" + symbol + "/bars?timeframe=" + timeframe
-	if start != "" {
-		path += "&start=" + start
+	basePath := stocksOrCryptoPath(symbol)
+
+	var allBars []*types.Bar
+	nextPageToken := ""
+	maxPages := 100 // safety valve
+
+	for page := 0; page < maxPages; page++ {
+		path := basePath + "/" + symbol + "/bars?timeframe=" + timeframe
+		if start != "" {
+			path += "&start=" + start
+		}
+		if end != "" {
+			path += "&end=" + end
+		}
+		if limit > 0 {
+			path += "&limit=" + strconv.Itoa(limit)
+		}
+		if nextPageToken != "" {
+			path += "&page_token=" + nextPageToken
+		}
+
+		data, _, err := p.doData(ctx, http.MethodGet, path)
+		if err != nil {
+			return nil, err
+		}
+
+		var raw struct {
+			Bars []struct {
+				T  string  `json:"t"`
+				O  float64 `json:"o"`
+				H  float64 `json:"h"`
+				L  float64 `json:"l"`
+				C  float64 `json:"c"`
+				V  float64 `json:"v"`
+				VW float64 `json:"vw"`
+				N  int     `json:"n"`
+			} `json:"bars"`
+			NextPageToken string `json:"next_page_token"`
+		}
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return nil, err
+		}
+
+		for _, b := range raw.Bars {
+			allBars = append(allBars, &types.Bar{
+				Timestamp:  b.T,
+				Open:       b.O,
+				High:       b.H,
+				Low:        b.L,
+				Close:      b.C,
+				Volume:     b.V,
+				VWAP:       b.VW,
+				TradeCount: b.N,
+			})
+		}
+
+		if raw.NextPageToken == "" {
+			break
+		}
+		// If caller specified a limit and we have enough, stop.
+		if limit > 0 && len(allBars) >= limit {
+			allBars = allBars[:limit]
+			break
+		}
+		nextPageToken = raw.NextPageToken
 	}
-	if end != "" {
-		path += "&end=" + end
-	}
-	if limit > 0 {
-		path += "&limit=" + strconv.Itoa(limit)
-	}
-	data, _, err := p.doData(ctx, http.MethodGet, path)
-	if err != nil {
-		return nil, err
-	}
-	var raw struct {
-		Bars []struct {
-			T  string  `json:"t"`
-			O  float64 `json:"o"`
-			H  float64 `json:"h"`
-			L  float64 `json:"l"`
-			C  float64 `json:"c"`
-			V  float64 `json:"v"`
-			VW float64 `json:"vw"`
-			N  int     `json:"n"`
-		} `json:"bars"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, err
-	}
-	bars := make([]*types.Bar, len(raw.Bars))
-	for i, b := range raw.Bars {
-		bars[i] = &types.Bar{Timestamp: b.T, Open: b.O, High: b.H, Low: b.L, Close: b.C, Volume: b.V, VWAP: b.VW, TradeCount: b.N}
-	}
-	return bars, nil
+
+	return allBars, nil
 }
 
 func (p *Provider) GetLatestTrades(ctx context.Context, symbols []string) (map[string]*types.Trade, error) {
-	path := "/v2/stocks/trades/latest?symbols=" + strings.Join(symbols, ",")
-	data, _, err := p.doData(ctx, http.MethodGet, path)
-	if err != nil {
-		return nil, err
+	result := make(map[string]*types.Trade)
+	// Split by asset class
+	var stocks, cryptos []string
+	for _, s := range symbols {
+		if isCryptoSymbol(s) {
+			cryptos = append(cryptos, s)
+		} else {
+			stocks = append(stocks, s)
+		}
 	}
-	var raw struct {
-		Trades map[string]struct {
-			T string  `json:"t"`
-			P float64 `json:"p"`
-			S float64 `json:"s"`
-			X string  `json:"x"`
-		} `json:"trades"`
+	if len(stocks) > 0 {
+		path := "/v2/stocks/trades/latest?symbols=" + strings.Join(stocks, ",")
+		data, _, err := p.doData(ctx, http.MethodGet, path)
+		if err != nil {
+			return nil, err
+		}
+		var raw struct {
+			Trades map[string]struct {
+				T string  `json:"t"`
+				P float64 `json:"p"`
+				S float64 `json:"s"`
+				X string  `json:"x"`
+			} `json:"trades"`
+		}
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return nil, err
+		}
+		for sym, t := range raw.Trades {
+			result[sym] = &types.Trade{Timestamp: t.T, Price: t.P, Size: t.S, Exchange: t.X}
+		}
 	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, err
-	}
-	result := make(map[string]*types.Trade, len(raw.Trades))
-	for sym, t := range raw.Trades {
-		result[sym] = &types.Trade{Timestamp: t.T, Price: t.P, Size: t.S, Exchange: t.X}
+	if len(cryptos) > 0 {
+		path := "/v1beta3/crypto/us/latest/trades?symbols=" + strings.Join(cryptos, ",")
+		data, _, err := p.doData(ctx, http.MethodGet, path)
+		if err != nil {
+			return nil, err
+		}
+		var raw struct {
+			Trades map[string]struct {
+				T string  `json:"t"`
+				P float64 `json:"p"`
+				S float64 `json:"s"`
+			} `json:"trades"`
+		}
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return nil, err
+		}
+		for sym, t := range raw.Trades {
+			result[sym] = &types.Trade{Timestamp: t.T, Price: t.P, Size: t.S}
+		}
 	}
 	return result, nil
 }
 
 func (p *Provider) GetLatestQuotes(ctx context.Context, symbols []string) (map[string]*types.Quote, error) {
-	path := "/v2/stocks/quotes/latest?symbols=" + strings.Join(symbols, ",")
-	data, _, err := p.doData(ctx, http.MethodGet, path)
-	if err != nil {
-		return nil, err
+	result := make(map[string]*types.Quote)
+	var stocks, cryptos []string
+	for _, s := range symbols {
+		if isCryptoSymbol(s) {
+			cryptos = append(cryptos, s)
+		} else {
+			stocks = append(stocks, s)
+		}
 	}
-	var raw struct {
-		Quotes map[string]struct {
-			T  string  `json:"t"`
-			BP float64 `json:"bp"`
-			BS float64 `json:"bs"`
-			AP float64 `json:"ap"`
-			AS float64 `json:"as"`
-		} `json:"quotes"`
+	if len(stocks) > 0 {
+		path := "/v2/stocks/quotes/latest?symbols=" + strings.Join(stocks, ",")
+		data, _, err := p.doData(ctx, http.MethodGet, path)
+		if err != nil {
+			return nil, err
+		}
+		var raw struct {
+			Quotes map[string]struct {
+				T  string  `json:"t"`
+				BP float64 `json:"bp"`
+				BS float64 `json:"bs"`
+				AP float64 `json:"ap"`
+				AS float64 `json:"as"`
+			} `json:"quotes"`
+		}
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return nil, err
+		}
+		for sym, q := range raw.Quotes {
+			result[sym] = &types.Quote{Timestamp: q.T, BidPrice: q.BP, BidSize: q.BS, AskPrice: q.AP, AskSize: q.AS}
+		}
 	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, err
-	}
-	result := make(map[string]*types.Quote, len(raw.Quotes))
-	for sym, q := range raw.Quotes {
-		result[sym] = &types.Quote{Timestamp: q.T, BidPrice: q.BP, BidSize: q.BS, AskPrice: q.AP, AskSize: q.AS}
+	if len(cryptos) > 0 {
+		path := "/v1beta3/crypto/us/latest/quotes?symbols=" + strings.Join(cryptos, ",")
+		data, _, err := p.doData(ctx, http.MethodGet, path)
+		if err != nil {
+			return nil, err
+		}
+		var raw struct {
+			Quotes map[string]struct {
+				T  string  `json:"t"`
+				BP float64 `json:"bp"`
+				BS float64 `json:"bs"`
+				AP float64 `json:"ap"`
+				AS float64 `json:"as"`
+			} `json:"quotes"`
+		}
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return nil, err
+		}
+		for sym, q := range raw.Quotes {
+			result[sym] = &types.Quote{Timestamp: q.T, BidPrice: q.BP, BidSize: q.BS, AskPrice: q.AP, AskSize: q.AS}
+		}
 	}
 	return result, nil
 }

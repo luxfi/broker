@@ -91,8 +91,14 @@ func NewServer(registry *provider.Registry, listenAddr string) *Server {
 
 		r.Get("/accounts/{provider}/{accountId}/orders", s.handleListOrders)
 		r.Post("/accounts/{provider}/{accountId}/orders", s.handleCreateOrder)
+		r.Delete("/accounts/{provider}/{accountId}/orders", s.handleCancelAllOrders)
 		r.Get("/accounts/{provider}/{accountId}/orders/{orderId}", s.handleGetOrder)
+		r.Patch("/accounts/{provider}/{accountId}/orders/{orderId}", s.handleReplaceOrder)
 		r.Delete("/accounts/{provider}/{accountId}/orders/{orderId}", s.handleCancelOrder)
+
+		r.Get("/accounts/{provider}/{accountId}/positions/{symbol}", s.handleGetPosition)
+		r.Delete("/accounts/{provider}/{accountId}/positions/{symbol}", s.handleClosePosition)
+		r.Delete("/accounts/{provider}/{accountId}/positions", s.handleCloseAllPositions)
 
 		r.Get("/accounts/{provider}/{accountId}/transfers", s.handleListTransfers)
 		r.Post("/accounts/{provider}/{accountId}/transfers", s.handleCreateTransfer)
@@ -139,6 +145,56 @@ func NewServer(registry *provider.Registry, listenAddr string) *Server {
 			r.Post("/webhook/{processor}", s.handleFundingWebhook)
 			r.Get("/processors", s.handleListProcessors)
 		})
+
+		// Extended Account Management
+		r.Patch("/accounts/{provider}/{accountId}", s.handleUpdateAccount)
+		r.Delete("/accounts/{provider}/{accountId}", s.handleCloseAccount)
+		r.Get("/accounts/{provider}/{accountId}/activities", s.handleGetAccountActivities)
+
+		// Documents
+		r.Post("/accounts/{provider}/{accountId}/documents", s.handleUploadDocument)
+		r.Get("/accounts/{provider}/{accountId}/documents", s.handleListDocuments)
+		r.Get("/accounts/{provider}/{accountId}/documents/{documentId}", s.handleGetDocument)
+		r.Get("/accounts/{provider}/{accountId}/documents/{documentId}/download", s.handleDownloadDocument)
+
+		// Journals (inter-account transfers)
+		r.Post("/journals/{provider}", s.handleCreateJournal)
+		r.Get("/journals/{provider}", s.handleListJournals)
+		r.Get("/journals/{provider}/{journalId}", s.handleGetJournal)
+		r.Delete("/journals/{provider}/{journalId}", s.handleDeleteJournal)
+		r.Post("/journals/{provider}/batch", s.handleCreateBatchJournal)
+		r.Post("/journals/{provider}/reverse_batch", s.handleReverseBatchJournal)
+
+		// Transfer Extended (cancel, ACH delete, wire banks)
+		r.Delete("/accounts/{provider}/{accountId}/transfers/{transferId}", s.handleCancelTransfer)
+		r.Delete("/accounts/{provider}/{accountId}/ach-relationships/{achId}", s.handleDeleteACHRelationship)
+		r.Post("/accounts/{provider}/{accountId}/recipient-banks", s.handleCreateRecipientBank)
+		r.Get("/accounts/{provider}/{accountId}/recipient-banks", s.handleListRecipientBanks)
+		r.Delete("/accounts/{provider}/{accountId}/recipient-banks/{bankId}", s.handleDeleteRecipientBank)
+
+		// Crypto Market Data
+		r.Get("/market/{provider}/crypto/bars", s.handleGetCryptoBars)
+		r.Get("/market/{provider}/crypto/quotes", s.handleGetCryptoQuotes)
+		r.Get("/market/{provider}/crypto/trades", s.handleGetCryptoTrades)
+		r.Get("/market/{provider}/crypto/snapshots", s.handleGetCryptoSnapshots)
+
+		// Portfolio History
+		r.Get("/accounts/{provider}/{accountId}/portfolio/history", s.handleGetPortfolioHistory)
+
+		// Watchlists
+		r.Post("/accounts/{provider}/{accountId}/watchlists", s.handleCreateWatchlist)
+		r.Get("/accounts/{provider}/{accountId}/watchlists", s.handleListWatchlists)
+		r.Get("/accounts/{provider}/{accountId}/watchlists/{watchlistId}", s.handleGetWatchlist)
+		r.Put("/accounts/{provider}/{accountId}/watchlists/{watchlistId}", s.handleUpdateWatchlist)
+		r.Delete("/accounts/{provider}/{accountId}/watchlists/{watchlistId}", s.handleDeleteWatchlist)
+		r.Post("/accounts/{provider}/{accountId}/watchlists/{watchlistId}/assets", s.handleAddWatchlistAsset)
+		r.Delete("/accounts/{provider}/{accountId}/watchlists/{watchlistId}/{symbol}", s.handleRemoveWatchlistAsset)
+
+		// Event Streaming (SSE)
+		r.Get("/events/{provider}/trades", s.handleStreamTradeEvents)
+		r.Get("/events/{provider}/accounts", s.handleStreamAccountEvents)
+		r.Get("/events/{provider}/transfers", s.handleStreamTransferEvents)
+		r.Get("/events/{provider}/journals", s.handleStreamJournalEvents)
 	})
 
 	s.router = r
@@ -300,7 +356,31 @@ func (s *Server) handleListOrders(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	orders, err := p.ListOrders(r.Context(), chi.URLParam(r, "accountId"))
+	accountID := chi.URLParam(r, "accountId")
+	q := r.URL.Query()
+
+	// If provider supports filtered listing and query params are provided, use it
+	if ext, ok := p.(provider.TradingExtended); ok {
+		params := &types.ListOrdersParams{
+			Status:    q.Get("status"),
+			After:     q.Get("after"),
+			Until:     q.Get("until"),
+			Direction: q.Get("direction"),
+			Nested:    q.Get("nested") == "true",
+		}
+		if l := q.Get("limit"); l != "" {
+			params.Limit, _ = strconv.Atoi(l)
+		}
+		orders, err := ext.ListOrdersFiltered(r.Context(), accountID, params)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, orders)
+		return
+	}
+
+	orders, err := p.ListOrders(r.Context(), accountID)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
@@ -370,7 +450,21 @@ func (s *Server) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.riskEng.RecordOrder(providerName, accountID, 0) // TODO: pass estimated value
+	// Estimate order value for risk tracking: qty * limit_price, or notional, or qty alone
+	var estimatedValue float64
+	if qty, err := strconv.ParseFloat(req.Qty, 64); err == nil && qty > 0 {
+		if price, err := strconv.ParseFloat(req.LimitPrice, 64); err == nil && price > 0 {
+			estimatedValue = qty * price
+		} else if price, err := strconv.ParseFloat(req.StopPrice, 64); err == nil && price > 0 {
+			estimatedValue = qty * price
+		}
+	}
+	if estimatedValue == 0 {
+		if notional, err := strconv.ParseFloat(req.Notional, 64); err == nil && notional > 0 {
+			estimatedValue = notional
+		}
+	}
+	s.riskEng.RecordOrder(providerName, accountID, estimatedValue)
 	writeJSON(w, http.StatusCreated, order)
 }
 
@@ -413,6 +507,116 @@ func (s *Server) handleCancelOrder(w http.ResponseWriter, r *http.Request) {
 
 	s.riskEng.RecordFill(providerName, accountID)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
+}
+
+func (s *Server) handleReplaceOrder(w http.ResponseWriter, r *http.Request) {
+	p, err := s.getProvider(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	ext, ok := p.(provider.TradingExtended)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "provider does not support order replacement")
+		return
+	}
+	accountID := chi.URLParam(r, "accountId")
+	orderID := chi.URLParam(r, "orderId")
+	var req types.ReplaceOrderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	order, err := ext.ReplaceOrder(r.Context(), accountID, orderID, &req)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, order)
+}
+
+func (s *Server) handleCancelAllOrders(w http.ResponseWriter, r *http.Request) {
+	p, err := s.getProvider(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	ext, ok := p.(provider.TradingExtended)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "provider does not support cancel all orders")
+		return
+	}
+	accountID := chi.URLParam(r, "accountId")
+	if err := ext.CancelAllOrders(r.Context(), accountID); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
+}
+
+func (s *Server) handleGetPosition(w http.ResponseWriter, r *http.Request) {
+	p, err := s.getProvider(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	ext, ok := p.(provider.TradingExtended)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "provider does not support get position")
+		return
+	}
+	position, err := ext.GetPosition(r.Context(), chi.URLParam(r, "accountId"), chi.URLParam(r, "symbol"))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, position)
+}
+
+func (s *Server) handleClosePosition(w http.ResponseWriter, r *http.Request) {
+	p, err := s.getProvider(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	ext, ok := p.(provider.TradingExtended)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "provider does not support close position")
+		return
+	}
+	accountID := chi.URLParam(r, "accountId")
+	symbol := chi.URLParam(r, "symbol")
+	var qty *float64
+	if qStr := r.URL.Query().Get("qty"); qStr != "" {
+		if q, err := strconv.ParseFloat(qStr, 64); err == nil {
+			qty = &q
+		}
+	}
+	order, err := ext.ClosePosition(r.Context(), accountID, symbol, qty)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, order)
+}
+
+func (s *Server) handleCloseAllPositions(w http.ResponseWriter, r *http.Request) {
+	p, err := s.getProvider(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	ext, ok := p.(provider.TradingExtended)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "provider does not support close all positions")
+		return
+	}
+	orders, err := ext.CloseAllPositions(r.Context(), chi.URLParam(r, "accountId"))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, orders)
 }
 
 func (s *Server) handleListTransfers(w http.ResponseWriter, r *http.Request) {
