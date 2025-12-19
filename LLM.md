@@ -73,6 +73,22 @@ if am, ok := p.(provider.AccountManager); ok { ... }
 - GetSnapshots/GetLatestTrades/GetLatestQuotes split by asset class
 
 ### API Routes (pkg/api/)
-- `server.go` -- Core routes and handlers
-- `handlers_extended.go` -- All new capability-based route handlers
+- `server.go` -- Core routes, middleware, and handler wiring
+- `handlers_extended.go` -- All capability-based route handlers
 - `handlers_funding.go` -- Payment processor deposit/withdraw
+
+### Admin Auth (pkg/admin/)
+- `admin.go` -- JWT auth (HMAC-SHA256), password hashing (SHA-256 + salt, never plaintext)
+- Admin users configured via ADMIN_USERNAME + ADMIN_PASSWORD env vars
+- JWT secret from ADMIN_SECRET env var (required for production)
+- Middleware validates Bearer tokens, sets X-Admin-User/X-Admin-Role headers
+
+### Compliance (extracted to luxfi/compliance)
+KYC/onboarding/application code has been extracted to the separate `luxfi/compliance` module.
+This broker is a pure trading router -- no KYC, no application onboarding.
+
+### Endpoint Groups
+| Prefix | Auth | Purpose |
+|--------|------|---------|
+| `/v1/*` | API Key/Bearer | Trading API |
+| `/healthz` | none | Health check |

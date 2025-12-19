@@ -224,6 +224,15 @@ func main() {
 	srv := api.NewServer(registry, listenAddr)
 	srv.SetFunding(fundingSvc)
 
+	// --- Admin Users ---
+	adminStore := srv.AdminStore()
+	adminUser := envOr("ADMIN_USERNAME", "admin")
+	adminPass := os.Getenv("ADMIN_PASSWORD")
+	if adminPass != "" {
+		adminStore.AddAdmin(adminUser, adminPass, "super_admin")
+		log.Info().Str("user", adminUser).Msg("Admin user configured")
+	}
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
