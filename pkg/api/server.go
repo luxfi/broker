@@ -13,6 +13,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
+	"github.com/luxfi/broker/pkg/admin"
 	"github.com/luxfi/broker/pkg/audit"
 	"github.com/luxfi/broker/pkg/auth"
 	"github.com/luxfi/broker/pkg/funding"
@@ -25,26 +26,33 @@ import (
 )
 
 type Server struct {
-	registry  *provider.Registry
-	sor       *router.Router
-	riskEng   *risk.Engine
-	auditLog  *audit.Log
-	authStore *auth.Store
-	feed      *marketdata.Feed
-	stream    *ws.Server
-	funding   *funding.Service
-	router    chi.Router
-	server    *http.Server
+	registry   *provider.Registry
+	sor        *router.Router
+	riskEng    *risk.Engine
+	auditLog   *audit.Log
+	authStore  *auth.Store
+	adminStore *admin.Store
+	feed       *marketdata.Feed
+	stream     *ws.Server
+	funding    *funding.Service
+	router     chi.Router
+	server     *http.Server
 }
 
 func NewServer(registry *provider.Registry, listenAddr string) *Server {
+	jwtSecret := os.Getenv("ADMIN_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = "change-me-in-production"
+	}
+
 	s := &Server{
-		registry:  registry,
-		sor:       router.New(registry),
-		riskEng:   risk.NewEngine(risk.DefaultLimits()),
-		auditLog:  audit.NewLog(),
-		authStore: auth.NewStore(),
-		feed:      marketdata.NewFeed(),
+		registry:   registry,
+		sor:        router.New(registry),
+		riskEng:    risk.NewEngine(risk.DefaultLimits()),
+		auditLog:   audit.NewLog(),
+		authStore:  auth.NewStore(),
+		adminStore: admin.NewStore(jwtSecret),
+		feed:       marketdata.NewFeed(),
 	}
 	s.stream = ws.NewServer(s.feed)
 
@@ -219,6 +227,21 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // SetFunding attaches a funding service for deposit/withdraw operations.
 func (s *Server) SetFunding(f *funding.Service) {
 	s.funding = f
+}
+
+// Handler returns the HTTP handler for testing.
+func (s *Server) Handler() http.Handler {
+	return s.router
+}
+
+// AdminStore returns the admin store for external configuration.
+func (s *Server) AdminStore() *admin.Store {
+	return s.adminStore
+}
+
+// AuthStore returns the auth store for external configuration.
+func (s *Server) AuthStore() *auth.Store {
+	return s.authStore
 }
 
 func (s *Server) getProvider(r *http.Request) (provider.Provider, error) {
