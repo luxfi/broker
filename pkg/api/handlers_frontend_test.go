@@ -620,3 +620,398 @@ func TestIsCryptoSymbol(t *testing.T) {
 		t.Error("expected AAPL to not be crypto")
 	}
 }
+
+func TestChartDataCustomTimeframeAndLimit(t *testing.T) {
+	mp := &mockProvider{
+		name: "testprov",
+		bars: []*types.Bar{
+			{Timestamp: "2026-01-01T09:30:00Z", Open: 100, High: 101, Low: 99, Close: 100.5, Volume: 200},
+		},
+	}
+	ts := setupTestServerWithMock(t, mp)
+	defer ts.Close()
+
+	resp, err := authedGet(ts.URL + "/v1/exchange/charts/AAPL?timeframe=5Min&limit=1")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var body map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&body)
+	bars := body["bars"].([]interface{})
+	if len(bars) != 1 {
+		t.Fatalf("expected 1 bar, got %d", len(bars))
+	}
+	bar := bars[0].(map[string]interface{})
+	if bar["high"].(float64) != 101 {
+		t.Fatalf("expected high=101, got %v", bar["high"])
+	}
+	if bar["volume"].(float64) != 200 {
+		t.Fatalf("expected volume=200, got %v", bar["volume"])
+	}
+}
+
+func TestChartDataDefaultTimeframe(t *testing.T) {
+	// Verify default timeframe is used when not specified
+	mp := &mockProvider{
+		name: "testprov",
+		bars: []*types.Bar{
+			{Timestamp: "2026-01-01T00:00:00Z", Open: 50, High: 55, Low: 45, Close: 52, Volume: 1000},
+		},
+	}
+	ts := setupTestServerWithMock(t, mp)
+	defer ts.Close()
+
+	// No timeframe param
+	resp, err := authedGet(ts.URL + "/v1/exchange/charts/ETH-USD")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var body map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&body)
+	bars := body["bars"].([]interface{})
+	if len(bars) != 1 {
+		t.Fatalf("expected 1 bar, got %d", len(bars))
+	}
+}
+
+func TestCryptoPricesMultipleSymbols(t *testing.T) {
+	mp := &mockProvider{
+		name: "testprov",
+		snapshot: map[string]*types.MarketSnapshot{
+			"BTC/USD": {
+				Symbol:      "BTC/USD",
+				LatestTrade: &types.Trade{Price: 50000.0},
+				DailyBar:    &types.Bar{Open: 49000, High: 51000, Low: 48000, Close: 50000, Volume: 1234},
+				PrevDailyBar: &types.Bar{Close: 49000},
+			},
+			"ETH/USD": {
+				Symbol:      "ETH/USD",
+				LatestTrade: &types.Trade{Price: 3000.0},
+				DailyBar:    &types.Bar{Open: 2900, High: 3100, Low: 2800, Close: 3000, Volume: 5678},
+				PrevDailyBar: &types.Bar{Close: 2900},
+			},
+			"SOL/USD": {
+				Symbol:      "SOL/USD",
+				LatestTrade: &types.Trade{Price: 100.0},
+			},
+		},
+	}
+	ts := setupTestServerWithMock(t, mp)
+	defer ts.Close()
+
+	resp, err := authedGet(ts.URL + "/v1/exchange/crypto-prices")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var body map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&body)
+	prices := body["prices"].(map[string]interface{})
+
+	if len(prices) != 3 {
+		t.Fatalf("expected 3 price entries, got %d", len(prices))
+	}
+
+	// Verify ETH data
+	eth := prices["ETH/USD"].(map[string]interface{})
+	if eth["price"].(float64) != 3000.0 {
+		t.Fatalf("expected ETH price 3000, got %v", eth["price"])
+	}
+	if eth["open"].(float64) != 2900 {
+		t.Fatalf("expected ETH open 2900, got %v", eth["open"])
+	}
+	changePct := eth["change_pct"].(float64)
+	// (3000 - 2900) / 2900 * 100 = 3.448...
+	if changePct < 3.4 || changePct > 3.5 {
+		t.Fatalf("expected ETH change_pct ~3.45, got %v", changePct)
+	}
+
+	// Verify SOL has price but no bar data
+	sol := prices["SOL/USD"].(map[string]interface{})
+	if sol["price"].(float64) != 100.0 {
+		t.Fatalf("expected SOL price 100, got %v", sol["price"])
+	}
+	if _, hasOpen := sol["open"]; hasOpen {
+		t.Fatal("SOL should not have open field (no DailyBar)")
+	}
+}
+
+func TestBuildPriceEntryPartialData(t *testing.T) {
+	// Only LatestTrade, no bars
+	snap := &types.MarketSnapshot{
+		LatestTrade: &types.Trade{Price: 42000},
+	}
+	entry := buildPriceEntry(snap)
+	if entry["price"].(float64) != 42000 {
+		t.Fatalf("expected price 42000, got %v", entry["price"])
+	}
+	if _, ok := entry["open"]; ok {
+		t.Fatal("should not have open without DailyBar")
+	}
+	if _, ok := entry["prev_close"]; ok {
+		t.Fatal("should not have prev_close without PrevDailyBar")
+	}
+
+	// Only DailyBar, no trade
+	snap2 := &types.MarketSnapshot{
+		DailyBar: &types.Bar{Open: 100, High: 110, Low: 90, Close: 105, Volume: 500},
+	}
+	entry2 := buildPriceEntry(snap2)
+	if _, ok := entry2["price"]; ok {
+		t.Fatal("should not have price without LatestTrade")
+	}
+	if entry2["close"].(float64) != 105 {
+		t.Fatalf("expected close 105, got %v", entry2["close"])
+	}
+
+	// PrevDailyBar with zero close should not produce change_pct
+	snap3 := &types.MarketSnapshot{
+		LatestTrade:  &types.Trade{Price: 100},
+		PrevDailyBar: &types.Bar{Close: 0},
+	}
+	entry3 := buildPriceEntry(snap3)
+	if _, ok := entry3["change_pct"]; ok {
+		t.Fatal("should not have change_pct when prev close is 0")
+	}
+}
+
+func TestAssetClassMappingAllTypes(t *testing.T) {
+	// Test all frontend-to-provider mappings
+	fToP := map[string]string{
+		"stocks":    "us_equity",
+		"crypto":    "crypto",
+		"bonds":     "fixed_income",
+		"commodity": "commodities",
+		"forex":     "forex",
+	}
+	for frontend, providerClass := range fToP {
+		got := frontendToProvider[frontend]
+		if got != providerClass {
+			t.Errorf("frontendToProvider[%q] = %q, want %q", frontend, got, providerClass)
+		}
+	}
+
+	// Test all provider-to-frontend mappings
+	pToF := map[string]string{
+		"us_equity":    "stocks",
+		"crypto":       "crypto",
+		"fixed_income": "bonds",
+		"commodities":  "commodity",
+		"forex":        "forex",
+	}
+	for providerClass, frontend := range pToF {
+		got := providerToFrontend[providerClass]
+		if got != frontend {
+			t.Errorf("providerToFrontend[%q] = %q, want %q", providerClass, got, frontend)
+		}
+	}
+}
+
+func TestFrontendAssetsFilterAllTypes(t *testing.T) {
+	mp := &mockProvider{
+		name: "testprov",
+		assets: []*types.Asset{
+			{ID: "1", Symbol: "AAPL", Name: "Apple", Class: "us_equity", Status: "active", Tradable: true},
+			{ID: "2", Symbol: "BTC/USD", Name: "Bitcoin", Class: "crypto", Status: "active", Tradable: true},
+			{ID: "3", Symbol: "BOND1", Name: "Treasury", Class: "fixed_income", Status: "active", Tradable: true},
+			{ID: "4", Symbol: "GOLD", Name: "Gold", Class: "commodities", Status: "active", Tradable: true},
+			{ID: "5", Symbol: "EUR/USD", Name: "Euro", Class: "forex", Status: "active", Tradable: true},
+		},
+	}
+	ts := setupTestServerWithMock(t, mp)
+	defer ts.Close()
+
+	for _, tt := range []struct {
+		queryType string
+		wantType  string
+	}{
+		{"stocks", "stocks"},
+		{"crypto", "crypto"},
+		{"bonds", "bonds"},
+		{"commodity", "commodity"},
+		{"forex", "forex"},
+	} {
+		t.Run(tt.queryType, func(t *testing.T) {
+			resp, err := authedGet(ts.URL + "/v1/exchange/assets?type=" + tt.queryType)
+			if err != nil {
+				t.Fatalf("GET: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("expected 200, got %d", resp.StatusCode)
+			}
+			var body map[string]interface{}
+			json.NewDecoder(resp.Body).Decode(&body)
+			total := body["total"].(float64)
+			if total != 1 {
+				t.Fatalf("expected 1 %s asset, got %v", tt.queryType, total)
+			}
+			assets := body["assets"].([]interface{})
+			first := assets[0].(map[string]interface{})
+			if first["type"] != tt.wantType {
+				t.Fatalf("expected type %q, got %v", tt.wantType, first["type"])
+			}
+		})
+	}
+}
+
+func TestResolveUserIDHeaders(t *testing.T) {
+	// X-Gateway-User-Id takes precedence
+	r, _ := http.NewRequest("GET", "/", nil)
+	r.Header.Set("X-Gateway-User-Id", "gateway-user")
+	r.Header.Set("X-Hanzo-User-Id", "hanzo-user")
+	if got := resolveUserID(r); got != "gateway-user" {
+		t.Fatalf("expected gateway-user, got %s", got)
+	}
+
+	// Falls back to X-Hanzo-User-Id
+	r2, _ := http.NewRequest("GET", "/", nil)
+	r2.Header.Set("X-Hanzo-User-Id", "hanzo-user")
+	if got := resolveUserID(r2); got != "hanzo-user" {
+		t.Fatalf("expected hanzo-user, got %s", got)
+	}
+
+	// No headers returns empty
+	r3, _ := http.NewRequest("GET", "/", nil)
+	if got := resolveUserID(r3); got != "" {
+		t.Fatalf("expected empty, got %s", got)
+	}
+}
+
+func TestFrontendCreateOrderInvalidJSON(t *testing.T) {
+	mp := &mockProvider{
+		name: "testprov",
+		accounts: []*types.Account{
+			{ID: "a1", ProviderID: "pa1", Provider: "testprov"},
+		},
+	}
+	ts := setupTestServerWithMock(t, mp)
+	defer ts.Close()
+
+	resp, err := authedPost(ts.URL+"/v1/exchange/orders", "application/json", strings.NewReader("{invalid"))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestFrontendCreateOrderDefaultTypeAndTIF(t *testing.T) {
+	mp := &mockProvider{
+		name: "testprov",
+		accounts: []*types.Account{
+			{ID: "a1", ProviderID: "pa1", Provider: "testprov"},
+		},
+	}
+	ts := setupTestServerWithMock(t, mp)
+	defer ts.Close()
+
+	// Only symbol and side — type and time_in_force should default
+	body := `{"symbol":"AAPL","qty":"1","side":"buy"}`
+	req, _ := http.NewRequest("POST", ts.URL+"/v1/exchange/orders", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+testAPIKey)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	var order map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&order)
+	if order["type"] != "market" {
+		t.Fatalf("expected default type 'market', got %v", order["type"])
+	}
+}
+
+func TestFrontendPortfolioMultipleAccounts(t *testing.T) {
+	mp1 := &mockProvider{
+		name: "prov1",
+		accounts: []*types.Account{
+			{ID: "a1", ProviderID: "pa1", Provider: "prov1", UserID: "user1"},
+		},
+		portfolio: &types.Portfolio{
+			Cash: "5000.00", Equity: "10000.00", BuyingPower: "8000.00", PortfolioValue: "10000.00",
+			Positions: []types.Position{
+				{Symbol: "AAPL", Qty: "10"},
+			},
+		},
+	}
+	mp2 := &mockProvider{
+		name: "prov2",
+		accounts: []*types.Account{
+			{ID: "a2", ProviderID: "pa2", Provider: "prov2", UserID: "user1"},
+		},
+		portfolio: &types.Portfolio{
+			Cash: "3000.00", Equity: "7000.00", BuyingPower: "5000.00", PortfolioValue: "7000.00",
+			Positions: []types.Position{
+				{Symbol: "BTC/USD", Qty: "0.5"},
+			},
+		},
+	}
+
+	os.Setenv("ADMIN_SECRET", "test-secret")
+	t.Cleanup(func() { os.Unsetenv("ADMIN_SECRET") })
+
+	registry := provider.NewRegistry()
+	registry.Register(mp1)
+	registry.Register(mp2)
+	srv := NewServer(registry, ":0")
+	srv.AuthStore().Add(&auth.APIKey{
+		Key: testAPIKey, Name: "test", OrgID: "test-org",
+		Permissions: []string{"admin"}, CreatedAt: time.Now(),
+	})
+	tsSrv := httptest.NewServer(srv.Handler())
+	defer tsSrv.Close()
+
+	req, _ := http.NewRequest("GET", tsSrv.URL+"/v1/exchange/portfolio", nil)
+	req.Header.Set("Authorization", "Bearer "+testAPIKey)
+	req.Header.Set("X-Gateway-User-Id", "user1")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var body map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&body)
+
+	// Aggregated: 5000 + 3000 = 8000 cash
+	if body["cash"] != "8000.00" {
+		t.Fatalf("expected aggregated cash 8000.00, got %v", body["cash"])
+	}
+	// Aggregated: 10000 + 7000 = 17000 equity
+	if body["equity"] != "17000.00" {
+		t.Fatalf("expected aggregated equity 17000.00, got %v", body["equity"])
+	}
+	positions := body["positions"].([]interface{})
+	if len(positions) != 2 {
+		t.Fatalf("expected 2 positions, got %d", len(positions))
+	}
+}
