@@ -87,3 +87,96 @@ func TestListProcessorsEmpty(t *testing.T) {
 		t.Fatalf("processors len = %d, want 0", len(names))
 	}
 }
+
+func TestDepositCryptoNoProcessors(t *testing.T) {
+	r := processor.NewRegistry(nil)
+	s := NewWithRegistry(r)
+
+	_, err := s.Deposit(context.Background(), &DepositRequest{
+		AccountID:     "acct1",
+		Provider:      "alpaca",
+		Amount:        100000,
+		Currency:      "btc",
+		PaymentMethod: "crypto",
+		TxHash:        "0xabc123",
+		Chain:         "bitcoin",
+		Address:       "bc1qexample",
+	})
+	if err == nil {
+		t.Fatal("expected error when no processors available for crypto")
+	}
+	if !strings.Contains(err.Error(), "no processor") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestWithdrawCryptoNoProcessors(t *testing.T) {
+	r := processor.NewRegistry(nil)
+	s := NewWithRegistry(r)
+
+	_, err := s.Withdraw(context.Background(), &WithdrawRequest{
+		AccountID:   "acct1",
+		Provider:    "alpaca",
+		Amount:      50000,
+		Currency:    "eth",
+		DestAddress: "0xdef456",
+		Chain:       "ethereum",
+	})
+	if err == nil {
+		t.Fatal("expected error for crypto withdrawal with no processors")
+	}
+	if !strings.Contains(err.Error(), "no processor") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDepositWithToken(t *testing.T) {
+	r := processor.NewRegistry(nil)
+	s := NewWithRegistry(r)
+
+	_, err := s.Deposit(context.Background(), &DepositRequest{
+		AccountID:     "acct1",
+		Provider:      "alpaca",
+		Amount:        10000,
+		Currency:      "usd",
+		PaymentMethod: "card",
+		Token:         "tok_test_123",
+	})
+	if err == nil {
+		t.Fatal("expected error (no processor), but validating token path is exercised")
+	}
+	if !strings.Contains(err.Error(), "no processor") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestWithdrawWithRelationship(t *testing.T) {
+	r := processor.NewRegistry(nil)
+	s := NewWithRegistry(r)
+
+	_, err := s.Withdraw(context.Background(), &WithdrawRequest{
+		AccountID:      "acct1",
+		Provider:       "alpaca",
+		Amount:         25000,
+		Currency:       "usd",
+		PaymentMethod:  "bank_transfer",
+		RelationshipID: "rel-123",
+	})
+	if err == nil {
+		t.Fatal("expected error (no processor)")
+	}
+	if !strings.Contains(err.Error(), "no processor") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestNewUsesGlobalRegistry(t *testing.T) {
+	s := New()
+	if s.registry == nil {
+		t.Fatal("expected non-nil registry from New()")
+	}
+	// ListProcessors should work even with global registry
+	names := s.ListProcessors(context.Background())
+	// May have processors or not depending on global state, but should not panic
+	_ = names
+}
