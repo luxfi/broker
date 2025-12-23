@@ -65,7 +65,7 @@ func (h *credentialsHandler) handleCreateCredential(w http.ResponseWriter, r *ht
 		Permissions: req.Permissions,
 	}
 	if err := h.store.SaveCredential(cred); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
@@ -83,7 +83,7 @@ func (h *credentialsHandler) handleCreateCredential(w http.ResponseWriter, r *ht
 func (h *credentialsHandler) handleDeleteCredential(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := h.store.DeleteCredential(id); err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})

@@ -32,7 +32,7 @@ func (h *onboardingHandler) handleCreatePipeline(w http.ResponseWriter, r *http.
 		p.Status = "draft"
 	}
 	if err := h.store.SavePipeline(&p); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	writeJSON(w, http.StatusCreated, &p)
@@ -41,7 +41,7 @@ func (h *onboardingHandler) handleCreatePipeline(w http.ResponseWriter, r *http.
 func (h *onboardingHandler) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
 	p, err := h.store.GetPipeline(chi.URLParam(r, "id"))
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, p)
@@ -51,7 +51,7 @@ func (h *onboardingHandler) handleUpdatePipeline(w http.ResponseWriter, r *http.
 	id := chi.URLParam(r, "id")
 	existing, err := h.store.GetPipeline(id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 
@@ -78,7 +78,7 @@ func (h *onboardingHandler) handleUpdatePipeline(w http.ResponseWriter, r *http.
 		existing.BusinessID = *patch.BusinessID
 	}
 	if err := h.store.SavePipeline(existing); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	writeJSON(w, http.StatusOK, existing)
@@ -86,7 +86,7 @@ func (h *onboardingHandler) handleUpdatePipeline(w http.ResponseWriter, r *http.
 
 func (h *onboardingHandler) handleDeletePipeline(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.DeletePipeline(chi.URLParam(r, "id")); err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
@@ -116,7 +116,7 @@ func (h *onboardingHandler) handleCreateSession(w http.ResponseWriter, r *http.R
 	// Validate pipeline exists and populate session steps from it.
 	pipeline, err := h.store.GetPipeline(sess.PipelineID)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "pipeline not found")
 		return
 	}
 	sess.Status = SessionPending
@@ -132,7 +132,7 @@ func (h *onboardingHandler) handleCreateSession(w http.ResponseWriter, r *http.R
 	}
 
 	if err := h.store.SaveSession(&sess); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	writeJSON(w, http.StatusCreated, &sess)
@@ -141,7 +141,7 @@ func (h *onboardingHandler) handleCreateSession(w http.ResponseWriter, r *http.R
 func (h *onboardingHandler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	sess, err := h.store.GetSession(chi.URLParam(r, "id"))
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, sess)
@@ -151,7 +151,7 @@ func (h *onboardingHandler) handleUpdateSession(w http.ResponseWriter, r *http.R
 	id := chi.URLParam(r, "id")
 	existing, err := h.store.GetSession(id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 
@@ -170,7 +170,7 @@ func (h *onboardingHandler) handleUpdateSession(w http.ResponseWriter, r *http.R
 		existing.KYCStatus = *patch.KYCStatus
 	}
 	if err := h.store.SaveSession(existing); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	writeJSON(w, http.StatusOK, existing)
@@ -179,7 +179,7 @@ func (h *onboardingHandler) handleUpdateSession(w http.ResponseWriter, r *http.R
 func (h *onboardingHandler) handleGetSessionSteps(w http.ResponseWriter, r *http.Request) {
 	sess, err := h.store.GetSession(chi.URLParam(r, "id"))
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, sess.Steps)
