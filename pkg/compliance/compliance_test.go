@@ -2055,3 +2055,749 @@ func TestSeedPopulatesNewTypes(t *testing.T) {
 		t.Fatal("expected seeded roles")
 	}
 }
+
+// ==========================================================================
+// AML Screening Tests
+// ==========================================================================
+
+func TestAMLScreenAndGet(t *testing.T) {
+	r, _ := newTestRouter()
+
+	// Create an AML screening.
+	w := doRequest(r, "POST", "/aml/screen", map[string]string{
+		"account_id": "acct-123",
+		"user_id":    "user-123",
+		"name":       "John Doe",
+		"country":    "US",
+	})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var screening AMLScreening
+	decodeJSON(t, w, &screening)
+	if screening.AccountID != "acct-123" {
+		t.Fatalf("expected account_id acct-123, got %s", screening.AccountID)
+	}
+	if screening.Status != AMLPending {
+		t.Fatalf("expected status pending, got %s", screening.Status)
+	}
+
+	// Get screening by ID.
+	w = doRequest(r, "GET", "/aml/screenings/"+screening.ID, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var fetched AMLScreening
+	decodeJSON(t, w, &fetched)
+	if fetched.ID != screening.ID {
+		t.Fatalf("ID mismatch: %s != %s", fetched.ID, screening.ID)
+	}
+}
+
+func TestAMLScreenMissingAccountID(t *testing.T) {
+	r, _ := newTestRouter()
+	w := doRequest(r, "POST", "/aml/screen", map[string]string{
+		"name": "John Doe",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestAMLScreenMissingName(t *testing.T) {
+	r, _ := newTestRouter()
+	w := doRequest(r, "POST", "/aml/screen", map[string]string{
+		"account_id": "acct-1",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestAMLListByAccount(t *testing.T) {
+	r, store := newTestRouter()
+
+	store.SaveAMLScreening(&AMLScreening{AccountID: "acct-a", UserID: "u1", Type: "sanctions", Status: AMLPending, Provider: "manual"})
+	store.SaveAMLScreening(&AMLScreening{AccountID: "acct-a", UserID: "u1", Type: "pep", Status: AMLCleared, Provider: "manual"})
+	store.SaveAMLScreening(&AMLScreening{AccountID: "acct-b", UserID: "u2", Type: "sanctions", Status: AMLFlagged, Provider: "manual"})
+
+	w := doRequest(r, "GET", "/aml/screenings?account_id=acct-a", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var screenings []*AMLScreening
+	decodeJSON(t, w, &screenings)
+	if len(screenings) != 2 {
+		t.Fatalf("expected 2 screenings for acct-a, got %d", len(screenings))
+	}
+}
+
+func TestAMLListByAccountMissingParam(t *testing.T) {
+	r, _ := newTestRouter()
+	w := doRequest(r, "GET", "/aml/screenings", nil)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestAMLListFlagged(t *testing.T) {
+	r, store := newTestRouter()
+
+	store.SaveAMLScreening(&AMLScreening{AccountID: "a1", Status: AMLFlagged, Provider: "jube"})
+	store.SaveAMLScreening(&AMLScreening{AccountID: "a2", Status: AMLCleared, Provider: "jube"})
+	store.SaveAMLScreening(&AMLScreening{AccountID: "a3", Status: AMLFlagged, Provider: "jube"})
+
+	w := doRequest(r, "GET", "/aml/flagged", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var flagged []*AMLScreening
+	decodeJSON(t, w, &flagged)
+	if len(flagged) != 2 {
+		t.Fatalf("expected 2 flagged, got %d", len(flagged))
+	}
+}
+
+func TestAMLReview(t *testing.T) {
+	r, store := newTestRouter()
+
+	sc := &AMLScreening{AccountID: "a1", Status: AMLFlagged, Provider: "jube"}
+	store.SaveAMLScreening(sc)
+
+	// Review and clear.
+	w := doRequest(r, "POST", "/aml/screenings/"+sc.ID+"/review", map[string]string{
+		"decision":    "cleared",
+		"reviewed_by": "admin@example.com",
+		"details":     "false positive",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var reviewed AMLScreening
+	decodeJSON(t, w, &reviewed)
+	if reviewed.Status != AMLCleared {
+		t.Fatalf("expected cleared, got %s", reviewed.Status)
+	}
+	if reviewed.ReviewedBy != "admin@example.com" {
+		t.Fatalf("expected reviewed_by admin@example.com, got %s", reviewed.ReviewedBy)
+	}
+}
+
+func TestAMLReviewBadDecision(t *testing.T) {
+	r, store := newTestRouter()
+
+	sc := &AMLScreening{AccountID: "a1", Status: AMLFlagged, Provider: "jube"}
+	store.SaveAMLScreening(sc)
+
+	w := doRequest(r, "POST", "/aml/screenings/"+sc.ID+"/review", map[string]string{
+		"decision":    "maybe",
+		"reviewed_by": "admin",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestAMLReviewMissingReviewer(t *testing.T) {
+	r, store := newTestRouter()
+
+	sc := &AMLScreening{AccountID: "a1", Status: AMLFlagged, Provider: "jube"}
+	store.SaveAMLScreening(sc)
+
+	w := doRequest(r, "POST", "/aml/screenings/"+sc.ID+"/review", map[string]string{
+		"decision": "cleared",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestAMLReviewNotFound(t *testing.T) {
+	r, _ := newTestRouter()
+
+	w := doRequest(r, "POST", "/aml/screenings/nonexistent/review", map[string]string{
+		"decision":    "cleared",
+		"reviewed_by": "admin",
+	})
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestAMLGetNotFound(t *testing.T) {
+	r, _ := newTestRouter()
+	w := doRequest(r, "GET", "/aml/screenings/nonexistent", nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestAMLRiskAssessment(t *testing.T) {
+	r, _ := newTestRouter()
+
+	w := doRequest(r, "POST", "/aml/risk-assessment", map[string]interface{}{
+		"account_id": "acct-1",
+		"user_id":    "user-1",
+		"amount":     50000.0,
+		"currency":   "USD",
+		"type":       "deposit",
+	})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var screening AMLScreening
+	decodeJSON(t, w, &screening)
+	if screening.Type != "transaction" {
+		t.Fatalf("expected type transaction, got %s", screening.Type)
+	}
+}
+
+func TestAMLRiskAssessmentMissingAmount(t *testing.T) {
+	r, _ := newTestRouter()
+
+	w := doRequest(r, "POST", "/aml/risk-assessment", map[string]interface{}{
+		"account_id": "acct-1",
+		"amount":     0,
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+// ==========================================================================
+// Application (5-Step Onboarding) Tests
+// ==========================================================================
+
+func TestApplicationFullOnboardingFlow(t *testing.T) {
+	r, _ := newTestRouter()
+
+	// Create application.
+	w := doRequest(r, "POST", "/applications/", map[string]string{
+		"user_id": "user-onboard",
+		"email":   "investor@example.com",
+	})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var app Application
+	decodeJSON(t, w, &app)
+	if app.Status != AppDraft {
+		t.Fatalf("expected status draft, got %s", app.Status)
+	}
+	if app.CurrentStep != 1 {
+		t.Fatalf("expected current_step 1, got %d", app.CurrentStep)
+	}
+	if len(app.Steps) != 5 {
+		t.Fatalf("expected 5 steps, got %d", len(app.Steps))
+	}
+
+	// Step 1: Basic info + Contact.
+	w = doRequest(r, "POST", "/applications/"+app.ID+"/step/1", map[string]interface{}{
+		"first_name":    "John",
+		"last_name":     "Doe",
+		"phone":         "+1-555-0100",
+		"date_of_birth": "1990-01-15",
+		"ssn":           "123-45-6789",
+		"address_line1": "123 Main St",
+		"city":          "New York",
+		"state":         "NY",
+		"zip_code":      "10001",
+		"country":       "US",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("step1: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	decodeJSON(t, w, &app)
+	if app.FirstName != "John" {
+		t.Fatalf("expected first_name John, got %s", app.FirstName)
+	}
+	if app.CurrentStep != 2 {
+		t.Fatalf("expected current_step 2, got %d", app.CurrentStep)
+	}
+	if app.Status != AppInProgress {
+		t.Fatalf("expected status in_progress, got %s", app.Status)
+	}
+	// SSN must be hashed, not exposed via JSON.
+	if app.SSNLast4 != "6789" {
+		t.Fatalf("expected ssn_last4 6789, got %s", app.SSNLast4)
+	}
+
+	// Step 2: Identity verification.
+	w = doRequest(r, "POST", "/applications/"+app.ID+"/step/2", map[string]string{
+		"provider":        "onfido",
+		"verification_id": "ver-abc-123",
+		"status":          "verified",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("step2: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	decodeJSON(t, w, &app)
+	if app.KYCStatus != KYCVerified {
+		t.Fatalf("expected kyc_status verified, got %s", app.KYCStatus)
+	}
+	if app.CurrentStep != 3 {
+		t.Fatalf("expected current_step 3, got %d", app.CurrentStep)
+	}
+
+	// Step 3: Document upload.
+	w = doRequest(r, "POST", "/applications/"+app.ID+"/step/3", map[string]interface{}{
+		"documents": []map[string]interface{}{
+			{"type": "passport", "name": "passport.pdf", "mime_type": "application/pdf", "size": 102400},
+			{"type": "utility_bill", "name": "utility.pdf", "mime_type": "application/pdf", "size": 51200},
+		},
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("step3: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	decodeJSON(t, w, &app)
+	if app.CurrentStep != 4 {
+		t.Fatalf("expected current_step 4, got %d", app.CurrentStep)
+	}
+
+	// Check documents were saved.
+	w = doRequest(r, "GET", "/applications/"+app.ID+"/documents", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("get docs: expected 200, got %d", w.Code)
+	}
+	var docs []*DocumentUpload
+	decodeJSON(t, w, &docs)
+	if len(docs) != 2 {
+		t.Fatalf("expected 2 documents, got %d", len(docs))
+	}
+
+	// Step 4: Compliance/AML screening.
+	w = doRequest(r, "POST", "/applications/"+app.ID+"/step/4", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("step4: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	decodeJSON(t, w, &app)
+	if app.CurrentStep != 5 {
+		t.Fatalf("expected current_step 5, got %d", app.CurrentStep)
+	}
+
+	// Step 5: Review + Submit.
+	w = doRequest(r, "POST", "/applications/"+app.ID+"/step/5", map[string]bool{
+		"confirmed": true,
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("step5: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	decodeJSON(t, w, &app)
+	if app.Status != AppSubmitted {
+		t.Fatalf("expected status submitted, got %s", app.Status)
+	}
+	if app.SubmittedAt.IsZero() {
+		t.Fatal("expected submitted_at to be set")
+	}
+
+	// Admin review: approve.
+	w = doRequest(r, "POST", "/applications/"+app.ID+"/review", map[string]string{
+		"decision":    "approved",
+		"reviewed_by": "compliance-officer@example.com",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("review: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	decodeJSON(t, w, &app)
+	if app.Status != AppApproved {
+		t.Fatalf("expected status approved, got %s", app.Status)
+	}
+}
+
+func TestApplicationCreateMissingUserID(t *testing.T) {
+	r, _ := newTestRouter()
+	w := doRequest(r, "POST", "/applications/", map[string]string{
+		"email": "test@test.com",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestApplicationCreateMissingEmail(t *testing.T) {
+	r, _ := newTestRouter()
+	w := doRequest(r, "POST", "/applications/", map[string]string{
+		"user_id": "user-1",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestApplicationGetNotFound(t *testing.T) {
+	r, _ := newTestRouter()
+	w := doRequest(r, "GET", "/applications/nonexistent", nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestApplicationLookupByUser(t *testing.T) {
+	r, store := newTestRouter()
+
+	app := &Application{
+		UserID: "user-lookup",
+		Email:  "lookup@test.com",
+		Status: AppDraft,
+		Steps:  newApplicationSteps(),
+	}
+	store.SaveApplication(app)
+
+	w := doRequest(r, "GET", "/applications/lookup?user_id=user-lookup", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var fetched Application
+	decodeJSON(t, w, &fetched)
+	if fetched.UserID != "user-lookup" {
+		t.Fatalf("expected user_id user-lookup, got %s", fetched.UserID)
+	}
+}
+
+func TestApplicationLookupByUserNotFound(t *testing.T) {
+	r, _ := newTestRouter()
+	w := doRequest(r, "GET", "/applications/lookup?user_id=nonexistent", nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestApplicationLookupMissingParam(t *testing.T) {
+	r, _ := newTestRouter()
+	w := doRequest(r, "GET", "/applications/lookup", nil)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestApplicationListByStatus(t *testing.T) {
+	r, store := newTestRouter()
+
+	store.SaveApplication(&Application{UserID: "u1", Email: "a@a.com", Status: AppDraft, Steps: newApplicationSteps()})
+	store.SaveApplication(&Application{UserID: "u2", Email: "b@b.com", Status: AppSubmitted, Steps: newApplicationSteps()})
+	store.SaveApplication(&Application{UserID: "u3", Email: "c@c.com", Status: AppSubmitted, Steps: newApplicationSteps()})
+
+	// All applications.
+	w := doRequest(r, "GET", "/applications/", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var all []*Application
+	decodeJSON(t, w, &all)
+	if len(all) != 3 {
+		t.Fatalf("expected 3 applications, got %d", len(all))
+	}
+
+	// Filter by status.
+	w = doRequest(r, "GET", "/applications/?status=submitted", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var submitted []*Application
+	decodeJSON(t, w, &submitted)
+	if len(submitted) != 2 {
+		t.Fatalf("expected 2 submitted, got %d", len(submitted))
+	}
+}
+
+func TestApplicationStep1MissingName(t *testing.T) {
+	r, store := newTestRouter()
+
+	app := &Application{UserID: "u1", Email: "a@a.com", Status: AppDraft, Steps: newApplicationSteps()}
+	store.SaveApplication(app)
+
+	w := doRequest(r, "POST", "/applications/"+app.ID+"/step/1", map[string]string{
+		"last_name": "Doe",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestApplicationStep2MissingProvider(t *testing.T) {
+	r, store := newTestRouter()
+
+	app := &Application{UserID: "u1", Email: "a@a.com", Status: AppDraft, Steps: newApplicationSteps()}
+	store.SaveApplication(app)
+
+	w := doRequest(r, "POST", "/applications/"+app.ID+"/step/2", map[string]string{})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestApplicationStep3NoDocuments(t *testing.T) {
+	r, store := newTestRouter()
+
+	app := &Application{UserID: "u1", Email: "a@a.com", Status: AppDraft, Steps: newApplicationSteps()}
+	store.SaveApplication(app)
+
+	w := doRequest(r, "POST", "/applications/"+app.ID+"/step/3", map[string]interface{}{
+		"documents": []interface{}{},
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestApplicationStep5NotConfirmed(t *testing.T) {
+	r, store := newTestRouter()
+
+	app := &Application{UserID: "u1", Email: "a@a.com", Status: AppDraft, Steps: newApplicationSteps()}
+	store.SaveApplication(app)
+
+	w := doRequest(r, "POST", "/applications/"+app.ID+"/step/5", map[string]bool{
+		"confirmed": false,
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestApplicationReviewBadDecision(t *testing.T) {
+	r, store := newTestRouter()
+
+	app := &Application{UserID: "u1", Email: "a@a.com", Status: AppSubmitted, Steps: newApplicationSteps()}
+	store.SaveApplication(app)
+
+	w := doRequest(r, "POST", "/applications/"+app.ID+"/review", map[string]string{
+		"decision":    "maybe",
+		"reviewed_by": "admin",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestApplicationReviewNotSubmitted(t *testing.T) {
+	r, store := newTestRouter()
+
+	app := &Application{UserID: "u1", Email: "a@a.com", Status: AppDraft, Steps: newApplicationSteps()}
+	store.SaveApplication(app)
+
+	w := doRequest(r, "POST", "/applications/"+app.ID+"/review", map[string]string{
+		"decision":    "approved",
+		"reviewed_by": "admin",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestApplicationReviewReject(t *testing.T) {
+	r, store := newTestRouter()
+
+	app := &Application{UserID: "u1", Email: "a@a.com", Status: AppSubmitted, Steps: newApplicationSteps()}
+	store.SaveApplication(app)
+
+	w := doRequest(r, "POST", "/applications/"+app.ID+"/review", map[string]string{
+		"decision":    "rejected",
+		"reviewed_by": "compliance@example.com",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var reviewed Application
+	decodeJSON(t, w, &reviewed)
+	if reviewed.Status != AppRejected {
+		t.Fatalf("expected rejected, got %s", reviewed.Status)
+	}
+}
+
+func TestApplicationDocumentsNotFound(t *testing.T) {
+	r, _ := newTestRouter()
+	w := doRequest(r, "GET", "/applications/nonexistent/documents", nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+// ==========================================================================
+// KYC Extended Endpoint Tests
+// ==========================================================================
+
+func TestKYCListByUser(t *testing.T) {
+	r, store := newTestRouter()
+
+	store.SaveIdentity(&Identity{UserID: "user-multi", Provider: "onfido", Status: KYCPending, Data: map[string]interface{}{}})
+	store.SaveIdentity(&Identity{UserID: "user-multi", Provider: "berbix", Status: KYCVerified, Data: map[string]interface{}{}})
+	store.SaveIdentity(&Identity{UserID: "user-other", Provider: "onfido", Status: KYCPending, Data: map[string]interface{}{}})
+
+	w := doRequest(r, "GET", "/kyc/?user_id=user-multi", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var identities []*Identity
+	decodeJSON(t, w, &identities)
+	if len(identities) != 2 {
+		t.Fatalf("expected 2 identities for user-multi, got %d", len(identities))
+	}
+}
+
+func TestKYCListByUserMissingParam(t *testing.T) {
+	r, _ := newTestRouter()
+	w := doRequest(r, "GET", "/kyc/", nil)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestKYCUpdateStatus(t *testing.T) {
+	r, store := newTestRouter()
+
+	ident := &Identity{UserID: "user-update", Provider: "onfido", Status: KYCPending, Data: map[string]interface{}{}}
+	store.SaveIdentity(ident)
+
+	w := doRequest(r, "PATCH", "/kyc/"+ident.ID, map[string]string{
+		"status": "verified",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var updated Identity
+	decodeJSON(t, w, &updated)
+	if updated.Status != KYCVerified {
+		t.Fatalf("expected verified, got %s", updated.Status)
+	}
+}
+
+func TestKYCUpdateStatusInvalid(t *testing.T) {
+	r, store := newTestRouter()
+
+	ident := &Identity{UserID: "user-bad", Provider: "onfido", Status: KYCPending, Data: map[string]interface{}{}}
+	store.SaveIdentity(ident)
+
+	w := doRequest(r, "PATCH", "/kyc/"+ident.ID, map[string]string{
+		"status": "nonexistent_status",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestKYCUpdateStatusNotFound(t *testing.T) {
+	r, _ := newTestRouter()
+	w := doRequest(r, "PATCH", "/kyc/nonexistent", map[string]string{
+		"status": "verified",
+	})
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestKYCDocumentUpload(t *testing.T) {
+	r, store := newTestRouter()
+
+	ident := &Identity{UserID: "user-doc", Provider: "onfido", Status: KYCPending, Data: map[string]interface{}{}}
+	store.SaveIdentity(ident)
+
+	w := doRequest(r, "POST", "/kyc/"+ident.ID+"/documents", map[string]string{
+		"type":      "passport",
+		"name":      "passport-scan.jpg",
+		"mime_type": "image/jpeg",
+	})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var doc Document
+	decodeJSON(t, w, &doc)
+	if doc.Type != "passport" {
+		t.Fatalf("expected type passport, got %s", doc.Type)
+	}
+	if doc.Status != "pending" {
+		t.Fatalf("expected status pending, got %s", doc.Status)
+	}
+}
+
+func TestKYCDocumentUploadMissingType(t *testing.T) {
+	r, store := newTestRouter()
+
+	ident := &Identity{UserID: "user-doc2", Provider: "onfido", Status: KYCPending, Data: map[string]interface{}{}}
+	store.SaveIdentity(ident)
+
+	w := doRequest(r, "POST", "/kyc/"+ident.ID+"/documents", map[string]string{
+		"name": "something.pdf",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestKYCDocumentUploadIdentityNotFound(t *testing.T) {
+	r, _ := newTestRouter()
+	w := doRequest(r, "POST", "/kyc/nonexistent/documents", map[string]string{
+		"type": "passport",
+		"name": "test.pdf",
+	})
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+// ==========================================================================
+// Modules Test (updated count)
+// ==========================================================================
+
+func TestListModulesIncludesAMLAndApplications(t *testing.T) {
+	r, _ := newTestRouter()
+	w := doRequest(r, "GET", "/modules", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var modules []Module
+	decodeJSON(t, w, &modules)
+
+	found := map[string]bool{}
+	for _, m := range modules {
+		found[m.Name] = true
+	}
+	for _, name := range []string{"aml", "applications"} {
+		if !found[name] {
+			t.Fatalf("expected module %q in list", name)
+		}
+	}
+}
+
+// ==========================================================================
+// Store Unit Tests (new types)
+// ==========================================================================
+
+func TestStoreAMLScreeningNotFound(t *testing.T) {
+	s := NewStore()
+	_, err := s.GetAMLScreening("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent aml screening")
+	}
+}
+
+func TestStoreApplicationNotFound(t *testing.T) {
+	s := NewStore()
+	_, err := s.GetApplication("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent application")
+	}
+}
+
+func TestStoreApplicationByUserNotFound(t *testing.T) {
+	s := NewStore()
+	_, err := s.GetApplicationByUser("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent user application")
+	}
+}
+
+func TestStoreDocumentUploadNotFound(t *testing.T) {
+	s := NewStore()
+	_, err := s.GetDocumentUpload("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent document")
+	}
+}
+
+func TestStoreIdentitiesByUserEmpty(t *testing.T) {
+	s := NewStore()
+	results := s.ListIdentitiesByUser("nonexistent")
+	if len(results) != 0 {
+		t.Fatalf("expected 0 results, got %d", len(results))
+	}
+}
