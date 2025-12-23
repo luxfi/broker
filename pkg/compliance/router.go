@@ -37,6 +37,7 @@ func WithJubeClient(c *jube.Client) RouterOption {
 // all routes (except /healthz) require a valid admin JWT and write operations
 // are gated by role-based permissions.
 // The authStore parameter provides API key management for credential endpoints.
+// Optional RouterOption values can add the auth store and Jube client.
 func NewRouter(store ComplianceStore, adminStore *admin.Store, authStore ...*auth.Store) chi.Router {
 	if store == nil {
 		store = NewMemoryStore()
@@ -84,6 +85,16 @@ func NewRouter(store ComplianceStore, adminStore *admin.Store, authStore ...*aut
 	// Request body size limit — 1MB max to prevent abuse.
 	r.Use(maxBodySize(1 << 20))
 
+	// Security headers for all compliance responses.
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("X-Frame-Options", "DENY")
+			w.Header().Set("Cache-Control", "no-store")
+			next.ServeHTTP(w, r)
+		})
+	})
+
 	// Health check — no auth required
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{
@@ -102,7 +113,7 @@ func NewRouter(store ComplianceStore, adminStore *admin.Store, authStore ...*aut
 
 		// KYC
 		r.Route("/kyc", func(r chi.Router) {
-			r.Post("/verify", guard("kyc", "write", kyc.handleVerify))
+			r.Post("/verify", rateLimitSensitive(guard("kyc", "write", kyc.handleVerify)))
 			r.Get("/", kyc.handleListByUser)
 			r.Get("/{id}", kyc.handleGet)
 			r.Patch("/{id}", guard("kyc", "write", kyc.handleUpdateStatus))
@@ -111,8 +122,8 @@ func NewRouter(store ComplianceStore, adminStore *admin.Store, authStore ...*aut
 
 		// AML
 		r.Route("/aml", func(r chi.Router) {
-			r.Post("/screen", guard("aml", "write", aml.handleScreen))
-			r.Post("/risk-assessment", guard("aml", "write", aml.handleRiskAssessment))
+			r.Post("/screen", rateLimitSensitive(guard("aml", "write", aml.handleScreen)))
+			r.Post("/risk-assessment", rateLimitSensitive(guard("aml", "write", aml.handleRiskAssessment)))
 			r.Get("/screenings", aml.handleListByAccount)
 			r.Get("/flagged", aml.handleListFlagged)
 			r.Get("/screenings/{id}", aml.handleGet)
@@ -291,6 +302,43 @@ func rateLimitLogin(next http.HandlerFunc) http.HandlerFunc {
 		if len(attempts[ip]) >= 5 {
 			mu.Unlock()
 			writeError(w, http.StatusTooManyRequests, "too many login attempts, try again in 1 minute")
+			return
+		}
+		attempts[ip] = append(attempts[ip], now)
+		mu.Unlock()
+
+		next(w, r)
+	}
+}
+
+// rateLimitSensitive wraps a handler with per-IP rate limiting for sensitive
+// compliance operations (KYC verify, AML screen). Allows 10 requests per
+// minute per IP, then returns 429.
+func rateLimitSensitive(next http.HandlerFunc) http.HandlerFunc {
+	var mu sync.Mutex
+	attempts := make(map[string][]time.Time)
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		ip := r.RemoteAddr
+		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+			ip = fwd
+		}
+
+		mu.Lock()
+		now := time.Now()
+		window := now.Add(-1 * time.Minute)
+
+		valid := attempts[ip][:0]
+		for _, t := range attempts[ip] {
+			if t.After(window) {
+				valid = append(valid, t)
+			}
+		}
+		attempts[ip] = valid
+
+		if len(attempts[ip]) >= 10 {
+			mu.Unlock()
+			writeError(w, http.StatusTooManyRequests, "rate limit exceeded, try again in 1 minute")
 			return
 		}
 		attempts[ip] = append(attempts[ip], now)
