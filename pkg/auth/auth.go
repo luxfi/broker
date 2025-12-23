@@ -61,10 +61,10 @@ func (ak *APIKey) HasPermission(perm string) bool {
 	return false
 }
 
-// Middleware returns an HTTP middleware that validates API keys.
-// Keys can be passed as:
-//   - Authorization: Bearer <key>
-//   - X-API-Key: <key>
+// Middleware returns an HTTP middleware that validates auth.
+// Accepts:
+//   - IAM headers: X-User-Id + X-Org-Id (Gateway-validated JWT)
+//   - API key: Authorization: Bearer <key> or X-API-Key: <key>
 func Middleware(store *Store) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -74,23 +74,33 @@ func Middleware(store *Store) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Skip API key auth when request comes from ATS proxy (already
-			// authenticated by Gateway via JWT). ATS sets X-Broker-User-Id
-			// and X-Broker-Org-Id after validating the user's session.
-			if userId := r.Header.Get("X-Broker-User-Id"); userId != "" {
-				if orgId := r.Header.Get("X-Broker-Org-Id"); orgId != "" {
-					r.Header.Set("X-Org-ID", orgId)
-					r.Header.Set("X-API-Key-Name", "ats-proxy")
+			// IAM auth: Gateway validated the JWT and injected identity headers.
+			// This is the primary auth path for all user-facing requests.
+			if userId := r.Header.Get("X-User-Id"); userId != "" {
+				orgId := r.Header.Get("X-Org-Id")
+				if orgId == "" {
+					orgId = r.Header.Get("X-Org-Id")
 				}
+				r.Header.Set("X-Org-ID", orgId)
+				r.Header.Set("X-API-Key-Name", "iam-user:"+userId)
+				next.ServeHTTP(w, r)
+				return
+			}
+			// Also accept X-User-Id (ATS proxy sets this)
+			if userId := r.Header.Get("X-User-Id"); userId != "" {
+				orgId := r.Header.Get("X-Org-Id")
+				r.Header.Set("X-Org-ID", orgId)
+				r.Header.Set("X-API-Key-Name", "ats-proxy:"+userId)
 				next.ServeHTTP(w, r)
 				return
 			}
 
+			// API key auth: for service-to-service and admin access
 			key := extractAPIKey(r)
 			if key == "" {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
-				w.Write([]byte(`{"error":"API key required"}`))
+				w.Write([]byte(`{"error":"authentication required"}`))
 				return
 			}
 
@@ -114,8 +124,8 @@ func Middleware(store *Store) func(http.Handler) http.Handler {
 func RequirePermission(store *Store, perm string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// ATS proxy bypass — already authenticated
-			if r.Header.Get("X-Broker-User-Id") != "" {
+			// IAM auth — Gateway-validated user has all permissions
+			if r.Header.Get("X-User-Id") != "" || r.Header.Get("X-User-Id") != "" {
 				next.ServeHTTP(w, r)
 				return
 			}
