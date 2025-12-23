@@ -64,6 +64,27 @@ type ComplianceStore interface {
 	ListCredentials() []*Credential
 	DeleteCredential(id string) error
 
+	// AML Screening
+	SaveAMLScreening(s *AMLScreening) error
+	GetAMLScreening(id string) (*AMLScreening, error)
+	ListAMLScreeningsByAccount(accountID string) []*AMLScreening
+	ListAMLScreeningsByStatus(status AMLStatus) []*AMLScreening
+
+	// Application (onboarding)
+	SaveApplication(app *Application) error
+	GetApplication(id string) (*Application, error)
+	GetApplicationByUser(userID string) (*Application, error)
+	ListApplications() []*Application
+	ListApplicationsByStatus(status ApplicationStatus) []*Application
+
+	// Document Upload
+	SaveDocumentUpload(doc *DocumentUpload) error
+	GetDocumentUpload(id string) (*DocumentUpload, error)
+	ListDocumentUploads(applicationID string) []*DocumentUpload
+
+	// Identity listing
+	ListIdentitiesByUser(userID string) []*Identity
+
 	// Settings
 	GetSettings() *Settings
 	SaveSettings(settings *Settings)
@@ -77,37 +98,43 @@ type ComplianceStore interface {
 // MemoryStore is an in-memory compliance data store.
 // Use PostgresStore in production.
 type MemoryStore struct {
-	mu           sync.RWMutex
-	identities   map[string]*Identity     // id -> Identity
-	businesses   map[string]*BusinessKYB   // id -> BusinessKYB
-	pipelines    map[string]*Pipeline      // id -> Pipeline
-	sessions     map[string]*Session       // id -> Session
-	funds        map[string]*Fund          // id -> Fund
-	investors    map[string][]*FundInvestor // fundID -> investors
-	envelopes    map[string]*Envelope      // id -> Envelope
-	templates    map[string]*Template      // id -> Template
-	roles        map[string]*Role          // id -> Role
-	users        map[string]*User          // id -> User
-	transactions map[string]*Transaction   // id -> Transaction
-	credentials  map[string]*Credential    // id -> Credential
-	settings     *Settings
+	mu              sync.RWMutex
+	identities      map[string]*Identity        // id -> Identity
+	businesses      map[string]*BusinessKYB      // id -> BusinessKYB
+	pipelines       map[string]*Pipeline         // id -> Pipeline
+	sessions        map[string]*Session          // id -> Session
+	funds           map[string]*Fund             // id -> Fund
+	investors       map[string][]*FundInvestor   // fundID -> investors
+	envelopes       map[string]*Envelope         // id -> Envelope
+	templates       map[string]*Template         // id -> Template
+	roles           map[string]*Role             // id -> Role
+	users           map[string]*User             // id -> User
+	transactions    map[string]*Transaction      // id -> Transaction
+	credentials     map[string]*Credential       // id -> Credential
+	amlScreenings   map[string]*AMLScreening     // id -> AMLScreening
+	applications    map[string]*Application      // id -> Application
+	documentUploads map[string]*DocumentUpload   // id -> DocumentUpload
+	settings        *Settings
 }
 
 // NewMemoryStore creates an empty in-memory compliance store.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		identities:   make(map[string]*Identity),
-		businesses:   make(map[string]*BusinessKYB),
-		pipelines:    make(map[string]*Pipeline),
-		sessions:     make(map[string]*Session),
-		funds:        make(map[string]*Fund),
-		investors:    make(map[string][]*FundInvestor),
-		envelopes:    make(map[string]*Envelope),
-		templates:    make(map[string]*Template),
-		roles:        make(map[string]*Role),
-		users:        make(map[string]*User),
-		transactions: make(map[string]*Transaction),
-		credentials:  make(map[string]*Credential),
+		identities:      make(map[string]*Identity),
+		businesses:      make(map[string]*BusinessKYB),
+		pipelines:       make(map[string]*Pipeline),
+		sessions:        make(map[string]*Session),
+		funds:           make(map[string]*Fund),
+		investors:       make(map[string][]*FundInvestor),
+		envelopes:       make(map[string]*Envelope),
+		templates:       make(map[string]*Template),
+		roles:           make(map[string]*Role),
+		users:           make(map[string]*User),
+		transactions:    make(map[string]*Transaction),
+		credentials:     make(map[string]*Credential),
+		amlScreenings:   make(map[string]*AMLScreening),
+		applications:    make(map[string]*Application),
+		documentUploads: make(map[string]*DocumentUpload),
 		settings: &Settings{
 			BusinessName:      "Your Company",
 			Timezone:          "America/New_York",
@@ -621,6 +648,182 @@ func (s *MemoryStore) ListEnvelopesByDirection(direction string) []*Envelope {
 				out = append(out, env)
 			}
 		}
+	}
+	return out
+}
+
+// --- AML Screening ---
+
+func (s *MemoryStore) SaveAMLScreening(sc *AMLScreening) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sc.ID == "" {
+		sc.ID = generateID()
+	}
+	if sc.CreatedAt.IsZero() {
+		sc.CreatedAt = time.Now().UTC()
+	}
+	sc.UpdatedAt = time.Now().UTC()
+	s.amlScreenings[sc.ID] = sc
+	return nil
+}
+
+func (s *MemoryStore) GetAMLScreening(id string) (*AMLScreening, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	sc, ok := s.amlScreenings[id]
+	if !ok {
+		return nil, fmt.Errorf("aml screening not found")
+	}
+	return sc, nil
+}
+
+func (s *MemoryStore) ListAMLScreeningsByAccount(accountID string) []*AMLScreening {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []*AMLScreening
+	for _, sc := range s.amlScreenings {
+		if sc.AccountID == accountID {
+			out = append(out, sc)
+		}
+	}
+	if out == nil {
+		out = make([]*AMLScreening, 0)
+	}
+	return out
+}
+
+func (s *MemoryStore) ListAMLScreeningsByStatus(status AMLStatus) []*AMLScreening {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []*AMLScreening
+	for _, sc := range s.amlScreenings {
+		if sc.Status == status {
+			out = append(out, sc)
+		}
+	}
+	if out == nil {
+		out = make([]*AMLScreening, 0)
+	}
+	return out
+}
+
+// --- Application ---
+
+func (s *MemoryStore) SaveApplication(app *Application) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if app.ID == "" {
+		app.ID = generateID()
+	}
+	if app.CreatedAt.IsZero() {
+		app.CreatedAt = time.Now().UTC()
+	}
+	app.UpdatedAt = time.Now().UTC()
+	s.applications[app.ID] = app
+	return nil
+}
+
+func (s *MemoryStore) GetApplication(id string) (*Application, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	app, ok := s.applications[id]
+	if !ok {
+		return nil, fmt.Errorf("application not found")
+	}
+	return app, nil
+}
+
+func (s *MemoryStore) GetApplicationByUser(userID string) (*Application, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, app := range s.applications {
+		if app.UserID == userID {
+			return app, nil
+		}
+	}
+	return nil, fmt.Errorf("application not found")
+}
+
+func (s *MemoryStore) ListApplications() []*Application {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]*Application, 0, len(s.applications))
+	for _, app := range s.applications {
+		out = append(out, app)
+	}
+	return out
+}
+
+func (s *MemoryStore) ListApplicationsByStatus(status ApplicationStatus) []*Application {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []*Application
+	for _, app := range s.applications {
+		if app.Status == status {
+			out = append(out, app)
+		}
+	}
+	if out == nil {
+		out = make([]*Application, 0)
+	}
+	return out
+}
+
+// --- Document Upload ---
+
+func (s *MemoryStore) SaveDocumentUpload(doc *DocumentUpload) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if doc.ID == "" {
+		doc.ID = generateID()
+	}
+	if doc.CreatedAt.IsZero() {
+		doc.CreatedAt = time.Now().UTC()
+	}
+	doc.UpdatedAt = time.Now().UTC()
+	s.documentUploads[doc.ID] = doc
+	return nil
+}
+
+func (s *MemoryStore) GetDocumentUpload(id string) (*DocumentUpload, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	doc, ok := s.documentUploads[id]
+	if !ok {
+		return nil, fmt.Errorf("document not found")
+	}
+	return doc, nil
+}
+
+func (s *MemoryStore) ListDocumentUploads(applicationID string) []*DocumentUpload {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []*DocumentUpload
+	for _, doc := range s.documentUploads {
+		if doc.ApplicationID == applicationID {
+			out = append(out, doc)
+		}
+	}
+	if out == nil {
+		out = make([]*DocumentUpload, 0)
+	}
+	return out
+}
+
+// --- Identity listing ---
+
+func (s *MemoryStore) ListIdentitiesByUser(userID string) []*Identity {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []*Identity
+	for _, ident := range s.identities {
+		if ident.UserID == userID {
+			out = append(out, ident)
+		}
+	}
+	if out == nil {
+		out = make([]*Identity, 0)
 	}
 	return out
 }

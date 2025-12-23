@@ -1023,3 +1023,429 @@ func (s *PostgresStore) ListEnvelopesByDirection(direction string) []*Envelope {
 	}
 	return out
 }
+
+// --- AML Screening ---
+
+func (s *PostgresStore) SaveAMLScreening(sc *AMLScreening) error {
+	ctx := context.Background()
+	if sc.ID == "" {
+		sc.ID = generateID()
+	}
+	if sc.CreatedAt.IsZero() {
+		sc.CreatedAt = time.Now().UTC()
+	}
+	sc.UpdatedAt = time.Now().UTC()
+
+	var reviewedAt *time.Time
+	if !sc.ReviewedAt.IsZero() {
+		reviewedAt = &sc.ReviewedAt
+	}
+
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO aml_screenings (id, account_id, user_id, type, status, risk_level, risk_score,
+			provider, details, sanctions_hit, pep_match, reviewed_by, reviewed_at, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		ON CONFLICT (id) DO UPDATE SET
+			status = EXCLUDED.status,
+			risk_level = EXCLUDED.risk_level,
+			risk_score = EXCLUDED.risk_score,
+			details = EXCLUDED.details,
+			reviewed_by = EXCLUDED.reviewed_by,
+			reviewed_at = EXCLUDED.reviewed_at,
+			updated_at = EXCLUDED.updated_at
+	`, sc.ID, sc.AccountID, sc.UserID, sc.Type, string(sc.Status), string(sc.RiskLevel),
+		sc.RiskScore, sc.Provider, sc.Details, sc.SanctionsHit, sc.PEPMatch,
+		sc.ReviewedBy, reviewedAt, sc.CreatedAt, sc.UpdatedAt)
+	return err
+}
+
+func (s *PostgresStore) GetAMLScreening(id string) (*AMLScreening, error) {
+	ctx := context.Background()
+	var sc AMLScreening
+	var status, riskLevel string
+	var reviewedAt *time.Time
+
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, account_id, user_id, type, status, risk_level, risk_score,
+			provider, details, sanctions_hit, pep_match, reviewed_by, reviewed_at, created_at, updated_at
+		FROM aml_screenings WHERE id = $1
+	`, id).Scan(&sc.ID, &sc.AccountID, &sc.UserID, &sc.Type, &status, &riskLevel,
+		&sc.RiskScore, &sc.Provider, &sc.Details, &sc.SanctionsHit, &sc.PEPMatch,
+		&sc.ReviewedBy, &reviewedAt, &sc.CreatedAt, &sc.UpdatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("aml screening not found")
+		}
+		return nil, err
+	}
+	sc.Status = AMLStatus(status)
+	sc.RiskLevel = RiskLevel(riskLevel)
+	if reviewedAt != nil {
+		sc.ReviewedAt = *reviewedAt
+	}
+	return &sc, nil
+}
+
+func (s *PostgresStore) ListAMLScreeningsByAccount(accountID string) []*AMLScreening {
+	ctx := context.Background()
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, account_id, user_id, type, status, risk_level, risk_score,
+			provider, details, sanctions_hit, pep_match, reviewed_by, reviewed_at, created_at, updated_at
+		FROM aml_screenings WHERE account_id = $1 ORDER BY created_at DESC
+	`, accountID)
+	if err != nil {
+		return make([]*AMLScreening, 0)
+	}
+	defer rows.Close()
+	return scanAMLScreenings(rows)
+}
+
+func (s *PostgresStore) ListAMLScreeningsByStatus(status AMLStatus) []*AMLScreening {
+	ctx := context.Background()
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, account_id, user_id, type, status, risk_level, risk_score,
+			provider, details, sanctions_hit, pep_match, reviewed_by, reviewed_at, created_at, updated_at
+		FROM aml_screenings WHERE status = $1 ORDER BY created_at DESC
+	`, string(status))
+	if err != nil {
+		return make([]*AMLScreening, 0)
+	}
+	defer rows.Close()
+	return scanAMLScreenings(rows)
+}
+
+func scanAMLScreenings(rows pgx.Rows) []*AMLScreening {
+	var out []*AMLScreening
+	for rows.Next() {
+		var sc AMLScreening
+		var status, riskLevel string
+		var reviewedAt *time.Time
+		if err := rows.Scan(&sc.ID, &sc.AccountID, &sc.UserID, &sc.Type, &status, &riskLevel,
+			&sc.RiskScore, &sc.Provider, &sc.Details, &sc.SanctionsHit, &sc.PEPMatch,
+			&sc.ReviewedBy, &reviewedAt, &sc.CreatedAt, &sc.UpdatedAt); err != nil {
+			continue
+		}
+		sc.Status = AMLStatus(status)
+		sc.RiskLevel = RiskLevel(riskLevel)
+		if reviewedAt != nil {
+			sc.ReviewedAt = *reviewedAt
+		}
+		out = append(out, &sc)
+	}
+	if out == nil {
+		out = make([]*AMLScreening, 0)
+	}
+	return out
+}
+
+// --- Application ---
+
+func (s *PostgresStore) SaveApplication(app *Application) error {
+	ctx := context.Background()
+	if app.ID == "" {
+		app.ID = generateID()
+	}
+	if app.CreatedAt.IsZero() {
+		app.CreatedAt = time.Now().UTC()
+	}
+	app.UpdatedAt = time.Now().UTC()
+
+	stepsJSON, err := json.Marshal(app.Steps)
+	if err != nil {
+		return fmt.Errorf("marshal application steps: %w", err)
+	}
+	docsJSON, err := json.Marshal(app.Documents)
+	if err != nil {
+		return fmt.Errorf("marshal application documents: %w", err)
+	}
+
+	var submittedAt, reviewedAt *time.Time
+	if !app.SubmittedAt.IsZero() {
+		submittedAt = &app.SubmittedAt
+	}
+	if !app.ReviewedAt.IsZero() {
+		reviewedAt = &app.ReviewedAt
+	}
+
+	_, err = s.pool.Exec(ctx, `
+		INSERT INTO applications (id, user_id, email, first_name, last_name, phone, date_of_birth,
+			ssn_hash, ssn_last4, address_line1, address_line2, city, state, zip_code, country,
+			status, current_step, kyc_status, aml_status, steps, documents,
+			risk_level, risk_score, submitted_at, reviewed_by, reviewed_at, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+			$16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
+		ON CONFLICT (id) DO UPDATE SET
+			email = EXCLUDED.email,
+			first_name = EXCLUDED.first_name,
+			last_name = EXCLUDED.last_name,
+			phone = EXCLUDED.phone,
+			date_of_birth = EXCLUDED.date_of_birth,
+			ssn_hash = EXCLUDED.ssn_hash,
+			ssn_last4 = EXCLUDED.ssn_last4,
+			address_line1 = EXCLUDED.address_line1,
+			address_line2 = EXCLUDED.address_line2,
+			city = EXCLUDED.city,
+			state = EXCLUDED.state,
+			zip_code = EXCLUDED.zip_code,
+			country = EXCLUDED.country,
+			status = EXCLUDED.status,
+			current_step = EXCLUDED.current_step,
+			kyc_status = EXCLUDED.kyc_status,
+			aml_status = EXCLUDED.aml_status,
+			steps = EXCLUDED.steps,
+			documents = EXCLUDED.documents,
+			risk_level = EXCLUDED.risk_level,
+			risk_score = EXCLUDED.risk_score,
+			submitted_at = EXCLUDED.submitted_at,
+			reviewed_by = EXCLUDED.reviewed_by,
+			reviewed_at = EXCLUDED.reviewed_at,
+			updated_at = EXCLUDED.updated_at
+	`, app.ID, app.UserID, app.Email, app.FirstName, app.LastName, app.Phone, app.DateOfBirth,
+		app.SSNHash, app.SSNLast4, app.AddressLine1, app.AddressLine2, app.City, app.State,
+		app.ZipCode, app.Country, string(app.Status), app.CurrentStep,
+		string(app.KYCStatus), string(app.AMLStatus), stepsJSON, docsJSON,
+		string(app.RiskLevel), app.RiskScore, submittedAt, app.ReviewedBy, reviewedAt,
+		app.CreatedAt, app.UpdatedAt)
+	return err
+}
+
+func (s *PostgresStore) GetApplication(id string) (*Application, error) {
+	ctx := context.Background()
+	return s.scanApplication(ctx, `
+		SELECT id, user_id, email, first_name, last_name, phone, date_of_birth,
+			ssn_hash, ssn_last4, address_line1, address_line2, city, state, zip_code, country,
+			status, current_step, kyc_status, aml_status, steps, documents,
+			risk_level, risk_score, submitted_at, reviewed_by, reviewed_at, created_at, updated_at
+		FROM applications WHERE id = $1
+	`, id)
+}
+
+func (s *PostgresStore) GetApplicationByUser(userID string) (*Application, error) {
+	ctx := context.Background()
+	return s.scanApplication(ctx, `
+		SELECT id, user_id, email, first_name, last_name, phone, date_of_birth,
+			ssn_hash, ssn_last4, address_line1, address_line2, city, state, zip_code, country,
+			status, current_step, kyc_status, aml_status, steps, documents,
+			risk_level, risk_score, submitted_at, reviewed_by, reviewed_at, created_at, updated_at
+		FROM applications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1
+	`, userID)
+}
+
+func (s *PostgresStore) scanApplication(ctx context.Context, query string, args ...interface{}) (*Application, error) {
+	var app Application
+	var status, kycStatus, amlStatus, riskLevel string
+	var stepsJSON, docsJSON []byte
+	var submittedAt, reviewedAt *time.Time
+
+	err := s.pool.QueryRow(ctx, query, args...).Scan(
+		&app.ID, &app.UserID, &app.Email, &app.FirstName, &app.LastName,
+		&app.Phone, &app.DateOfBirth, &app.SSNHash, &app.SSNLast4,
+		&app.AddressLine1, &app.AddressLine2, &app.City, &app.State,
+		&app.ZipCode, &app.Country, &status, &app.CurrentStep,
+		&kycStatus, &amlStatus, &stepsJSON, &docsJSON,
+		&riskLevel, &app.RiskScore, &submittedAt, &app.ReviewedBy,
+		&reviewedAt, &app.CreatedAt, &app.UpdatedAt,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("application not found")
+		}
+		return nil, err
+	}
+	app.Status = ApplicationStatus(status)
+	app.KYCStatus = KYCStatus(kycStatus)
+	app.AMLStatus = AMLStatus(amlStatus)
+	app.RiskLevel = RiskLevel(riskLevel)
+	if submittedAt != nil {
+		app.SubmittedAt = *submittedAt
+	}
+	if reviewedAt != nil {
+		app.ReviewedAt = *reviewedAt
+	}
+	if len(stepsJSON) > 0 {
+		json.Unmarshal(stepsJSON, &app.Steps)
+	}
+	if len(docsJSON) > 0 {
+		json.Unmarshal(docsJSON, &app.Documents)
+	}
+	return &app, nil
+}
+
+func (s *PostgresStore) ListApplications() []*Application {
+	ctx := context.Background()
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, user_id, email, first_name, last_name, phone, date_of_birth,
+			ssn_hash, ssn_last4, address_line1, address_line2, city, state, zip_code, country,
+			status, current_step, kyc_status, aml_status, steps, documents,
+			risk_level, risk_score, submitted_at, reviewed_by, reviewed_at, created_at, updated_at
+		FROM applications ORDER BY created_at DESC
+	`)
+	if err != nil {
+		return make([]*Application, 0)
+	}
+	defer rows.Close()
+	return s.scanApplicationRows(rows)
+}
+
+func (s *PostgresStore) ListApplicationsByStatus(status ApplicationStatus) []*Application {
+	ctx := context.Background()
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, user_id, email, first_name, last_name, phone, date_of_birth,
+			ssn_hash, ssn_last4, address_line1, address_line2, city, state, zip_code, country,
+			status, current_step, kyc_status, aml_status, steps, documents,
+			risk_level, risk_score, submitted_at, reviewed_by, reviewed_at, created_at, updated_at
+		FROM applications WHERE status = $1 ORDER BY created_at DESC
+	`, string(status))
+	if err != nil {
+		return make([]*Application, 0)
+	}
+	defer rows.Close()
+	return s.scanApplicationRows(rows)
+}
+
+func (s *PostgresStore) scanApplicationRows(rows pgx.Rows) []*Application {
+	var out []*Application
+	for rows.Next() {
+		var app Application
+		var status, kycStatus, amlStatus, riskLevel string
+		var stepsJSON, docsJSON []byte
+		var submittedAt, reviewedAt *time.Time
+
+		if err := rows.Scan(
+			&app.ID, &app.UserID, &app.Email, &app.FirstName, &app.LastName,
+			&app.Phone, &app.DateOfBirth, &app.SSNHash, &app.SSNLast4,
+			&app.AddressLine1, &app.AddressLine2, &app.City, &app.State,
+			&app.ZipCode, &app.Country, &status, &app.CurrentStep,
+			&kycStatus, &amlStatus, &stepsJSON, &docsJSON,
+			&riskLevel, &app.RiskScore, &submittedAt, &app.ReviewedBy,
+			&reviewedAt, &app.CreatedAt, &app.UpdatedAt,
+		); err != nil {
+			continue
+		}
+		app.Status = ApplicationStatus(status)
+		app.KYCStatus = KYCStatus(kycStatus)
+		app.AMLStatus = AMLStatus(amlStatus)
+		app.RiskLevel = RiskLevel(riskLevel)
+		if submittedAt != nil {
+			app.SubmittedAt = *submittedAt
+		}
+		if reviewedAt != nil {
+			app.ReviewedAt = *reviewedAt
+		}
+		if len(stepsJSON) > 0 {
+			json.Unmarshal(stepsJSON, &app.Steps)
+		}
+		if len(docsJSON) > 0 {
+			json.Unmarshal(docsJSON, &app.Documents)
+		}
+		out = append(out, &app)
+	}
+	if out == nil {
+		out = make([]*Application, 0)
+	}
+	return out
+}
+
+// --- Document Upload ---
+
+func (s *PostgresStore) SaveDocumentUpload(doc *DocumentUpload) error {
+	ctx := context.Background()
+	if doc.ID == "" {
+		doc.ID = generateID()
+	}
+	if doc.CreatedAt.IsZero() {
+		doc.CreatedAt = time.Now().UTC()
+	}
+	doc.UpdatedAt = time.Now().UTC()
+
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO document_uploads (id, application_id, user_id, type, name, mime_type, size, status, review_note, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		ON CONFLICT (id) DO UPDATE SET
+			status = EXCLUDED.status,
+			review_note = EXCLUDED.review_note,
+			updated_at = EXCLUDED.updated_at
+	`, doc.ID, doc.ApplicationID, doc.UserID, doc.Type, doc.Name, doc.MimeType,
+		doc.Size, doc.Status, doc.ReviewNote, doc.CreatedAt, doc.UpdatedAt)
+	return err
+}
+
+func (s *PostgresStore) GetDocumentUpload(id string) (*DocumentUpload, error) {
+	ctx := context.Background()
+	var doc DocumentUpload
+
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, application_id, user_id, type, name, mime_type, size, status, review_note, created_at, updated_at
+		FROM document_uploads WHERE id = $1
+	`, id).Scan(&doc.ID, &doc.ApplicationID, &doc.UserID, &doc.Type, &doc.Name,
+		&doc.MimeType, &doc.Size, &doc.Status, &doc.ReviewNote, &doc.CreatedAt, &doc.UpdatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("document not found")
+		}
+		return nil, err
+	}
+	return &doc, nil
+}
+
+func (s *PostgresStore) ListDocumentUploads(applicationID string) []*DocumentUpload {
+	ctx := context.Background()
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, application_id, user_id, type, name, mime_type, size, status, review_note, created_at, updated_at
+		FROM document_uploads WHERE application_id = $1 ORDER BY created_at DESC
+	`, applicationID)
+	if err != nil {
+		return make([]*DocumentUpload, 0)
+	}
+	defer rows.Close()
+
+	var out []*DocumentUpload
+	for rows.Next() {
+		var doc DocumentUpload
+		if err := rows.Scan(&doc.ID, &doc.ApplicationID, &doc.UserID, &doc.Type, &doc.Name,
+			&doc.MimeType, &doc.Size, &doc.Status, &doc.ReviewNote, &doc.CreatedAt, &doc.UpdatedAt); err != nil {
+			continue
+		}
+		out = append(out, &doc)
+	}
+	if out == nil {
+		out = make([]*DocumentUpload, 0)
+	}
+	return out
+}
+
+// --- Identity listing ---
+
+func (s *PostgresStore) ListIdentitiesByUser(userID string) []*Identity {
+	ctx := context.Background()
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, user_id, provider, status, data, created_at, updated_at
+		FROM identities WHERE user_id = $1 ORDER BY created_at DESC
+	`, userID)
+	if err != nil {
+		return make([]*Identity, 0)
+	}
+	defer rows.Close()
+
+	var out []*Identity
+	for rows.Next() {
+		var ident Identity
+		var status string
+		var dataJSON []byte
+		if err := rows.Scan(&ident.ID, &ident.UserID, &ident.Provider, &status, &dataJSON, &ident.CreatedAt, &ident.UpdatedAt); err != nil {
+			continue
+		}
+		ident.Status = KYCStatus(status)
+		if len(dataJSON) > 0 {
+			json.Unmarshal(dataJSON, &ident.Data)
+		}
+		if ident.Data == nil {
+			ident.Data = make(map[string]interface{})
+		}
+		out = append(out, &ident)
+	}
+	if out == nil {
+		out = make([]*Identity, 0)
+	}
+	return out
+}
