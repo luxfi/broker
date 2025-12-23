@@ -265,6 +265,123 @@ type Credential struct {
 	ExpiresAt   string    `json:"expires_at,omitempty"`
 }
 
+// --- AML Types ---
+
+// AMLStatus tracks anti-money laundering screening state.
+type AMLStatus string
+
+const (
+	AMLPending  AMLStatus = "pending"
+	AMLCleared  AMLStatus = "cleared"
+	AMLFlagged  AMLStatus = "flagged"
+	AMLBlocked  AMLStatus = "blocked"
+	AMLExpired  AMLStatus = "expired"
+)
+
+// RiskLevel categorizes account risk.
+type RiskLevel string
+
+const (
+	RiskLow      RiskLevel = "low"
+	RiskMedium   RiskLevel = "medium"
+	RiskHigh     RiskLevel = "high"
+	RiskCritical RiskLevel = "critical"
+)
+
+// AMLScreening represents a single AML screening record for an account.
+type AMLScreening struct {
+	ID            string    `json:"id"`
+	AccountID     string    `json:"account_id"`
+	UserID        string    `json:"user_id"`
+	Type          string    `json:"type"` // sanctions, pep, adverse_media, transaction
+	Status        AMLStatus `json:"status"`
+	RiskLevel     RiskLevel `json:"risk_level"`
+	RiskScore     float64   `json:"risk_score"`
+	Provider      string    `json:"provider"` // jube, manual
+	Details       string    `json:"details,omitempty"`
+	SanctionsHit  bool      `json:"sanctions_hit"`
+	PEPMatch      bool      `json:"pep_match"`
+	ReviewedBy    string    `json:"reviewed_by,omitempty"`
+	ReviewedAt    time.Time `json:"reviewed_at,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// --- Onboarding Application Types ---
+
+// ApplicationStatus tracks an onboarding application's overall state.
+type ApplicationStatus string
+
+const (
+	AppDraft      ApplicationStatus = "draft"
+	AppInProgress ApplicationStatus = "in_progress"
+	AppSubmitted  ApplicationStatus = "submitted"
+	AppUnderReview ApplicationStatus = "under_review"
+	AppApproved   ApplicationStatus = "approved"
+	AppRejected   ApplicationStatus = "rejected"
+)
+
+// ApplicationStep represents completion of a single onboarding step.
+type ApplicationStep struct {
+	Step        int                    `json:"step"`
+	Name        string                 `json:"name"`
+	Status      string                 `json:"status"` // pending, completed, failed, skipped
+	Data        map[string]interface{} `json:"data,omitempty"`
+	CompletedAt time.Time              `json:"completed_at,omitempty"`
+}
+
+// Application is an investor's onboarding application through the 5-step flow:
+// Step 1: Basic info + Contact
+// Step 2: Identity verification
+// Step 3: Document upload
+// Step 4: Compliance/AML screening
+// Step 5: Review + Submit
+type Application struct {
+	ID            string            `json:"id"`
+	UserID        string            `json:"user_id"`
+	Email         string            `json:"email"`
+	FirstName     string            `json:"first_name"`
+	LastName      string            `json:"last_name"`
+	Phone         string            `json:"phone,omitempty"`
+	DateOfBirth   string            `json:"date_of_birth,omitempty"`
+	SSNHash       string            `json:"-"`               // hashed, never exposed via API
+	SSNLast4      string            `json:"ssn_last4,omitempty"` // last 4 digits for display
+	AddressLine1  string            `json:"address_line1,omitempty"`
+	AddressLine2  string            `json:"address_line2,omitempty"`
+	City          string            `json:"city,omitempty"`
+	State         string            `json:"state,omitempty"`
+	ZipCode       string            `json:"zip_code,omitempty"`
+	Country       string            `json:"country,omitempty"`
+	Status        ApplicationStatus `json:"status"`
+	CurrentStep   int               `json:"current_step"`
+	KYCStatus     KYCStatus         `json:"kyc_status"`
+	AMLStatus     AMLStatus         `json:"aml_status"`
+	Steps         []ApplicationStep `json:"steps"`
+	Documents     []Document        `json:"documents,omitempty"`
+	RiskLevel     RiskLevel         `json:"risk_level,omitempty"`
+	RiskScore     float64           `json:"risk_score,omitempty"`
+	SubmittedAt   time.Time         `json:"submitted_at,omitempty"`
+	ReviewedBy    string            `json:"reviewed_by,omitempty"`
+	ReviewedAt    time.Time         `json:"reviewed_at,omitempty"`
+	CreatedAt     time.Time         `json:"created_at"`
+	UpdatedAt     time.Time         `json:"updated_at"`
+}
+
+// DocumentUpload represents a document uploaded during onboarding.
+type DocumentUpload struct {
+	ID            string    `json:"id"`
+	ApplicationID string    `json:"application_id"`
+	UserID        string    `json:"user_id"`
+	Type          string    `json:"type"` // passport, drivers_license, utility_bill, proof_of_address, tax_return
+	Name          string    `json:"name"`
+	MimeType      string    `json:"mime_type"`
+	Size          int64     `json:"size"`
+	Status        string    `json:"status"` // pending, accepted, rejected
+	ReviewNote    string    `json:"review_note,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
 // --- Billing Types ---
 
 // Invoice represents a billing invoice.
