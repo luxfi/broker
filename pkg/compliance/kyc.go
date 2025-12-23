@@ -2,12 +2,24 @@ package compliance
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog/log"
 )
+
+// allowedDocMIMETypes restricts document uploads to safe formats.
+var allowedDocMIMETypes = map[string]bool{
+	"application/pdf":  true,
+	"image/jpeg":       true,
+	"image/png":        true,
+	"image/tiff":       true,
+}
+
+// maxDocumentContentSize is the maximum decoded size for base64 document content (10 MB).
+const maxDocumentContentSize = 10 * 1024 * 1024
 
 // KYCProvider is the interface for pluggable identity verification backends
 // (Onfido, Berbix, IDMerit, etc.).
@@ -161,6 +173,23 @@ func (h *kycHandler) handleUploadDocument(w http.ResponseWriter, r *http.Request
 	if req.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
+	}
+	// Validate MIME type to prevent malicious file uploads.
+	if req.MimeType != "" && !allowedDocMIMETypes[req.MimeType] {
+		writeError(w, http.StatusBadRequest, "unsupported file type; allowed: pdf, jpeg, png, tiff")
+		return
+	}
+	// Validate content size to prevent oversized uploads.
+	if req.Content != "" {
+		decoded, err := base64.StdEncoding.DecodeString(req.Content)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid base64 content")
+			return
+		}
+		if len(decoded) > maxDocumentContentSize {
+			writeError(w, http.StatusBadRequest, "document content exceeds 10MB limit")
+			return
+		}
 	}
 
 	doc := Document{
