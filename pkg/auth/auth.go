@@ -74,19 +74,23 @@ func Middleware(store *Store) func(http.Handler) http.Handler {
 				return
 			}
 
-			// IAM auth: Gateway validated the JWT and injected identity headers.
-			// This is the primary auth path for all user-facing requests.
-			if userId := r.Header.Get("X-User-Id"); userId != "" {
+			// IAM auth: Gateway injects identity headers after JWT validation.
+			// Accept X-User-Id (new) and X-IAM-User-Id (legacy, until gateway updates).
+			userId := r.Header.Get("X-User-Id")
+			if userId == "" {
+				userId = r.Header.Get("X-IAM-User-Id")
+			}
+			if userId != "" {
 				orgId := r.Header.Get("X-Org-Id")
 				if orgId == "" {
-					orgId = r.Header.Get("X-Org-Id")
+					orgId = r.Header.Get("X-IAM-Org-Id")
 				}
 				r.Header.Set("X-Org-ID", orgId)
 				r.Header.Set("X-API-Key-Name", "iam-user:"+userId)
 				next.ServeHTTP(w, r)
 				return
 			}
-			// Also accept X-User-Id (ATS proxy sets this)
+			// Also accept X-User-Id from ATS proxy
 			if userId := r.Header.Get("X-User-Id"); userId != "" {
 				orgId := r.Header.Get("X-Org-Id")
 				r.Header.Set("X-Org-ID", orgId)
