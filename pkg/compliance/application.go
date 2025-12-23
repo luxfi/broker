@@ -1,15 +1,27 @@
 package compliance
 
 import (
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog/log"
 )
+
+// ssnHMACKey is the key used for HMAC-SHA256 hashing of SSNs.
+// Must be set via SSN_HMAC_KEY environment variable (sourced from KMS).
+// Falls back to a deterministic salt if unset (not suitable for production).
+var ssnHMACKey = func() []byte {
+	if key := os.Getenv("SSN_HMAC_KEY"); key != "" {
+		return []byte(key)
+	}
+	return []byte("CHANGE-ME-USE-KMS-IN-PRODUCTION")
+}()
 
 // applicationHandler manages the 5-step investor onboarding flow.
 type applicationHandler struct {
@@ -151,9 +163,12 @@ func (h *applicationHandler) handleStep1(w http.ResponseWriter, r *http.Request)
 	app.Country = req.Country
 
 	// Hash SSN if provided -- NEVER store plaintext.
+	// Uses HMAC-SHA256 with a key to prevent rainbow table attacks on the
+	// small SSN keyspace (10^9). Key must come from KMS via SSN_HMAC_KEY env var.
 	if req.SSN != "" {
-		hash := sha256.Sum256([]byte(req.SSN))
-		app.SSNHash = hex.EncodeToString(hash[:])
+		mac := hmac.New(sha256.New, ssnHMACKey)
+		mac.Write([]byte(req.SSN))
+		app.SSNHash = hex.EncodeToString(mac.Sum(nil))
 		if len(req.SSN) >= 4 {
 			app.SSNLast4 = req.SSN[len(req.SSN)-4:]
 		}
@@ -266,6 +281,16 @@ func (h *applicationHandler) handleStep3(w http.ResponseWriter, r *http.Request)
 		}
 		if d.Name == "" {
 			writeError(w, http.StatusBadRequest, "document name is required")
+			return
+		}
+		// Validate MIME type.
+		if d.MimeType != "" && !allowedDocMIMETypes[d.MimeType] {
+			writeError(w, http.StatusBadRequest, "unsupported file type; allowed: pdf, jpeg, png, tiff")
+			return
+		}
+		// Validate file size (10 MB max).
+		if d.Size > maxDocumentContentSize {
+			writeError(w, http.StatusBadRequest, "document exceeds 10MB size limit")
 			return
 		}
 
