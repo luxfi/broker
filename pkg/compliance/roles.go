@@ -88,6 +88,8 @@ func (h *rolesHandler) handleDeleteRole(w http.ResponseWriter, r *http.Request) 
 func (h *rolesHandler) handleListModules(w http.ResponseWriter, r *http.Request) {
 	modules := []Module{
 		{Name: "kyc", Description: "KYC identity verification", Actions: []string{"read", "write", "admin"}},
+		{Name: "aml", Description: "AML screening and monitoring", Actions: []string{"read", "write", "admin"}},
+		{Name: "applications", Description: "Onboarding applications", Actions: []string{"read", "write", "admin"}},
 		{Name: "funds", Description: "Fund management", Actions: []string{"read", "write", "delete", "admin"}},
 		{Name: "esign", Description: "Electronic signatures", Actions: []string{"read", "write", "admin"}},
 		{Name: "pipelines", Description: "Onboarding pipelines", Actions: []string{"read", "write", "delete", "admin"}},

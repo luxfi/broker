@@ -99,6 +99,20 @@ Mounted at `/compliance` on the main server. Supports in-memory store (default) 
 PostgreSQL via `DATABASE_URL` env var. Includes Jube AML/fraud client (`pkg/compliance/jube/`)
 and webhook dispatcher (`pkg/compliance/webhooks/`).
 
+Key endpoint groups under `/compliance`:
+- `/kyc` -- Identity verification, document upload, status tracking (list by user, update status)
+- `/aml` -- AML screening (Jube integration), risk assessment, flagged review, sanctions checks
+- `/applications` -- 5-step onboarding flow (basic info, identity, documents, compliance, submit)
+- `/pipelines` + `/sessions` -- Configurable onboarding pipeline engine
+- `/funds` -- Fund management with investor tracking
+- `/esign` -- Envelope/template eSign workflow
+- `/roles` + `/modules` -- RBAC permission matrix
+
+New files (2026-03-27):
+- `aml.go` -- AML screening/review/risk-assessment handlers
+- `application.go` -- 5-step onboarding application handlers (SSN hashed with SHA-256)
+- `schemas/compliance_tables.sql` -- PostgreSQL migration for aml_screenings, applications, document_uploads
+
 ### Database (pkg/db/)
 PostgreSQL connection pool and auto-migrations. Used by compliance when `DATABASE_URL` is set.
 
