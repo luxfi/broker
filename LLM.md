@@ -86,16 +86,21 @@ if am, ok := p.(provider.AccountManager); ok { ... }
 ### Provider Registration from Env (pkg/provider/envconfig/)
 `envconfig.RegisterFromEnv(registry)` reads all 16 provider env vars and registers
 configured providers. This replaces the 16 if-blocks that were duplicated in
-`cmd/brokerd/main.go` and `liquidityio/ats/exchange.go`. Any ATS, BD, or TA binary
+`cmd/brokerd/main.go`. Any ATS, BD, or TA binary
 imports `envconfig` instead of importing all 16 provider sub-packages directly.
 
 The `envconfig` package lives as a sub-package of `provider` (not in `provider` itself)
 to avoid import cycles: `provider/alpaca` has compile-time interface assertions that
 import `provider`, so `provider` cannot import `provider/alpaca`.
 
-### Compliance (extracted to luxfi/compliance)
-KYC/onboarding/application code has been extracted to the separate `luxfi/compliance` module.
-This broker is a pure trading router -- no KYC, no application onboarding.
+### Compliance (pkg/compliance/)
+KYC/KYB, onboarding, fund management, eSign, RBAC, and reporting.
+Mounted at `/compliance` on the main server. Supports in-memory store (default) or
+PostgreSQL via `DATABASE_URL` env var. Includes Jube AML/fraud client (`pkg/compliance/jube/`)
+and webhook dispatcher (`pkg/compliance/webhooks/`).
+
+### Database (pkg/db/)
+PostgreSQL connection pool and auto-migrations. Used by compliance when `DATABASE_URL` is set.
 
 ### Endpoint Groups
 | Prefix | Auth | Purpose |

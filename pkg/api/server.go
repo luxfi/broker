@@ -30,18 +30,21 @@ import (
 )
 
 type Server struct {
-	registry   *provider.Registry
-	resolver   *accounts.Resolver
-	sor        *router.Router
-	riskEng    *risk.Engine
-	auditLog   *audit.Log
-	authStore  *auth.Store
-	adminStore *admin.Store
-	feed       *marketdata.Feed
-	stream     *ws.Server
-	funding    *funding.Service
-	router     chi.Router
-	server     *http.Server
+	registry              *provider.Registry
+	resolver              *accounts.Resolver
+	sor                   *router.Router
+	riskEng               *risk.Engine
+	auditLog              *audit.Log
+	authStore             *auth.Store
+	adminStore            *admin.Store
+	feed                  *marketdata.Feed
+	stream                *ws.Server
+	funding               *funding.Service
+	twap                  *router.TWAPScheduler
+	arbDetector           *marketdata.ArbitrageDetector
+	arbDetectorThresholdBps float64
+	router                chi.Router
+	server                *http.Server
 }
 
 func NewServer(registry *provider.Registry, listenAddr string) *Server {
@@ -84,7 +87,7 @@ func NewServer(registry *provider.Registry, listenAddr string) *Server {
 	r.Use(chimw.Recoverer)
 	r.Use(chimw.Timeout(60 * time.Second))
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"https://lux.financial", "https://app.lux.financial", "https://mpc.lux.network", "http://localhost:3000", "http://localhost:3001"},
+		AllowedOrigins:   []string{"https://example.com", "https://app.example.com", "https://mpc.lux.network", "http://localhost:3000", "http://localhost:3001"},
 		AllowedMethods:   []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-API-Key"},
 		AllowCredentials: true,
@@ -136,6 +139,14 @@ func NewServer(registry *provider.Registry, listenAddr string) *Server {
 		r.Get("/assets", s.handleAggregatedAssets)
 		r.Post("/smart-order", s.handleSmartOrder)
 		r.Post("/smart-order/split", s.handleExecuteSplit)
+
+		// TWAP Execution
+		r.Post("/twap", s.handleStartTWAP)
+		r.Get("/twap", s.handleGetTWAP)
+		r.Delete("/twap", s.handleCancelTWAP)
+
+		// Arbitrage Detection
+		r.Get("/arbitrage", s.handleScanArbitrage)
 
 		// Market Data
 		r.Get("/market/{provider}/snapshot/{symbol}", s.handleGetSnapshot)
@@ -251,9 +262,25 @@ func (s *Server) SetFunding(f *funding.Service) {
 	s.funding = f
 }
 
+// SetTWAP attaches a TWAP scheduler for time-weighted execution.
+func (s *Server) SetTWAP(t *router.TWAPScheduler) {
+	s.twap = t
+}
+
+// SetArbitrageDetector attaches an arbitrage detector for cross-venue scanning.
+func (s *Server) SetArbitrageDetector(d *marketdata.ArbitrageDetector, thresholdBps float64) {
+	s.arbDetector = d
+	s.arbDetectorThresholdBps = thresholdBps
+}
+
 // Handler returns the HTTP handler for testing.
 func (s *Server) Handler() http.Handler {
 	return s.router
+}
+
+// Mount attaches a sub-router at the given pattern on the main router.
+func (s *Server) Mount(pattern string, handler http.Handler) {
+	s.router.Mount(pattern, handler)
 }
 
 // AdminStore returns the admin store for external configuration.

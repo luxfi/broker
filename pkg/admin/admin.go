@@ -3,6 +3,7 @@
 package admin
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -16,6 +17,28 @@ import (
 	"sync"
 	"time"
 )
+
+// contextKey is an unexported type for context keys in this package.
+type contextKey string
+
+const (
+	// ContextKeyAdminUser is the context key for the admin username.
+	ContextKeyAdminUser contextKey = "admin_user"
+	// ContextKeyAdminRole is the context key for the admin role.
+	ContextKeyAdminRole contextKey = "admin_role"
+)
+
+// UserFromContext returns the admin username from the request context.
+func UserFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(ContextKeyAdminUser).(string)
+	return v
+}
+
+// RoleFromContext returns the admin role from the request context.
+func RoleFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(ContextKeyAdminRole).(string)
+	return v
+}
 
 // Admin represents an admin user with hashed credentials.
 type Admin struct {
@@ -128,9 +151,14 @@ type Claims struct {
 
 // Middleware returns HTTP middleware that validates admin JWT tokens.
 // Tokens are passed as: Authorization: Bearer <token>
+// Claims are stored in the request context, not HTTP headers.
 func Middleware(store *Store) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Strip any incoming claim headers to prevent injection
+			r.Header.Del("X-Admin-User")
+			r.Header.Del("X-Admin-Role")
+
 			auth := r.Header.Get("Authorization")
 			if !strings.HasPrefix(auth, "Bearer ") {
 				writeAdminError(w, http.StatusUnauthorized, "admin token required")
@@ -144,10 +172,10 @@ func Middleware(store *Store) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Pass claims through headers for downstream handlers
-			r.Header.Set("X-Admin-User", claims.Sub)
-			r.Header.Set("X-Admin-Role", claims.Role)
-			next.ServeHTTP(w, r)
+			// Pass claims through request context — never via headers
+			ctx := context.WithValue(r.Context(), ContextKeyAdminUser, claims.Sub)
+			ctx = context.WithValue(ctx, ContextKeyAdminRole, claims.Role)
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
@@ -183,6 +211,61 @@ func hashPassword(password, salt string) string {
 		key = h[:]
 	}
 	return hex.EncodeToString(key)
+}
+
+// LoginHandler returns an http.HandlerFunc that accepts POST {username, password}
+// and returns {token: "jwt..."} on success.
+func LoginHandler(store *Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeAdminError(w, http.StatusMethodNotAllowed, "POST required")
+			return
+		}
+
+		var req struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeAdminError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if req.Username == "" || req.Password == "" {
+			writeAdminError(w, http.StatusBadRequest, "username and password required")
+			return
+		}
+
+		token, err := store.Authenticate(req.Username, req.Password)
+		if err != nil {
+			writeAdminError(w, http.StatusUnauthorized, "invalid credentials")
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"token": token})
+	}
+}
+
+// VerifyHandler returns an http.HandlerFunc that validates the Bearer token
+// from the Authorization header and returns the decoded claims on success.
+func VerifyHandler(store *Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if !strings.HasPrefix(auth, "Bearer ") {
+			writeAdminError(w, http.StatusUnauthorized, "token required")
+			return
+		}
+		token := strings.TrimPrefix(auth, "Bearer ")
+
+		claims, err := store.ValidateToken(token)
+		if err != nil {
+			writeAdminError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(claims)
+	}
 }
 
 func writeAdminError(w http.ResponseWriter, status int, msg string) {
