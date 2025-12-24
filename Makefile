@@ -1,4 +1,4 @@
-.PHONY: build run test test-race lint docker docker-push tag clean
+.PHONY: build run test test-race lint proto docker docker-push tag clean
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
@@ -16,6 +16,11 @@ test-race:
 
 lint:
 	go vet ./...
+
+proto:
+	protoc --go_out=. --go_opt=paths=source_relative \
+		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+		proto/broker.proto
 
 docker:
 	docker build --platform linux/amd64 -t ghcr.io/luxfi/broker:$(VERSION) -t ghcr.io/luxfi/broker:latest .

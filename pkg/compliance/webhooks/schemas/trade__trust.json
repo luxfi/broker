@@ -1,0 +1,135 @@
+{
+  "webhook_event": {
+    "event_id": "evt_trade_trus_001",
+    "event_type": "trade.executed",
+    "endpoint": "POST /v1/webhooks/trade",
+    "timestamp": "2026-03-22T14:32:00.000Z",
+    "version": "2.0.0",
+    "transaction_type": "return_of_capital",
+    "blockchain_transaction_id": "0x4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f",
+    "recipients": [
+      {
+        "recipient_id": "rec_001",
+        "name": "Northern Trust Securities",
+        "role": "buyer_broker_dealer",
+        "delivered_at": "2026-03-22T14:32:01.123Z",
+        "delivery_status": "delivered"
+      },
+      {
+        "recipient_id": "rec_002",
+        "name": "Wells Fargo Advisors",
+        "role": "seller_broker_dealer",
+        "delivered_at": "2026-03-22T14:32:01.456Z",
+        "delivery_status": "delivered"
+      },
+      {
+        "recipient_id": "rec_003",
+        "name": "Computershare Trust Company",
+        "role": "transfer_agent",
+        "delivered_at": "2026-03-22T14:32:01.789Z",
+        "delivery_status": "delivered"
+      }
+    ]
+  },
+  "transaction": {
+    "transaction_id": "txn_trust_4d5e6f7g",
+    "transaction_type": "secondary_market_transfer",
+    "status": "pending_compliance_clearance",
+    "initiated_at": "2026-03-22T14:30:00.000Z",
+    "description": "Secondary market transfer of Class B Shares \u2014 buyer-initiated on behalf of trust",
+    "security": {
+      "asset_id": "asset_trust_0j1k",
+      "asset_name": "Pinnacle Real Estate Partners \u2014 Class B Shares",
+      "asset_type": "private_security",
+      "security_class": "Common Shares",
+      "share_class": "Class B",
+      "cusip": null,
+      "isin": null,
+      "issuer_id": "iss_pinnacle_real_estate_0003",
+      "issuer_name": "Pinnacle Real Estate Partners",
+      "issuer_type": "Private Partnership",
+      "number_of_shares": 300,
+      "price_per_share": 75.0,
+      "currency": "USD",
+      "gross_trade_amount": 22500.0,
+      "accrued_interest": 0.0,
+      "commissions": {
+        "buyer_broker_dealer": {
+          "firm_name": "Northern Trust Securities",
+          "crd_number": "41408",
+          "commission": 112.5,
+          "commission_type": "flat_fee",
+          "currency": "USD"
+        },
+        "seller_broker_dealer": {
+          "firm_name": "Wells Fargo Advisors",
+          "crd_number": "19616",
+          "commission": 112.5,
+          "commission_type": "flat_fee",
+          "currency": "USD"
+        },
+        "total_commissions": 225.0
+      },
+      "net_trade_amount": 22725.0,
+      "trade_execution_datetime": "2026-03-22T14:30:00.000Z",
+      "price_determination_method": "negotiated",
+      "bid_price": 74.0,
+      "ask_price": 76.0,
+      "last_valuation_price": 73.5,
+      "last_valuation_date": "2026-03-01"
+    },
+    "settlement": {
+      "settlement_date": "2026-03-24T00:00:00.000Z",
+      "settlement_type": "bilateral",
+      "settlement_status": "pending",
+      "settlement_currency": "USD"
+    },
+    "restrictions": {
+      "legend_required": true,
+      "rule_144_holding_period_met": true,
+      "transfer_restrictions": "Subject to partnership agreement and applicable securities laws",
+      "lock_up_expiry_date": "2026-06-30"
+    }
+  },
+  "buyer": {
+    "investor_id": "inv_entity_harrison_family_trust_0003",
+    "account_id": "acct_buyer_trust_dd4e5f6g",
+    "account_type": "entity",
+    "broker_dealer": {
+      "firm_name": "Northern Trust Securities",
+      "crd_number": "41408",
+      "finra_member": true
+    },
+    "compliance_ref": {
+      "endpoint": "GET /v1/investors/inv_entity_harrison_family_trust_0003/compliance",
+      "description": "Fetch full KYC, KYB, accreditation, PEPs & Sanctions, adverse media, and transaction monitoring data for this investor."
+    }
+  },
+  "seller": {
+    "investor_id": "inv_indv_patricia_nguyen_0099",
+    "account_id": "acct_seller_indv_trust",
+    "account_type": "individual",
+    "broker_dealer": {
+      "firm_name": "Wells Fargo Advisors",
+      "crd_number": "19616",
+      "finra_member": true
+    },
+    "compliance_ref": {
+      "endpoint": "GET /v1/investors/inv_indv_patricia_nguyen_0099/compliance",
+      "description": "Fetch full KYC, KYB, accreditation, PEPs & Sanctions, adverse media, and transaction monitoring data for this investor."
+    }
+  },
+  "transfer_agent": {
+    "firm_name": "Computershare Trust Company",
+    "sec_registered": true,
+    "sec_registration_number": "84-01234",
+    "acknowledgment": {
+      "acknowledged": true,
+      "acknowledged_at": "2026-03-22T14:32:05.000Z",
+      "transfer_instruction_id": "ti_trust_dd4e5f6g",
+      "record_date": "2026-03-22T00:00:00.000Z",
+      "units_to_transfer": 300,
+      "status": "pending_transfer"
+    }
+  }
+}

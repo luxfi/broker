@@ -1039,8 +1039,17 @@ func (p *Provider) GetBars(ctx context.Context, symbol, timeframe, start, end st
 	nextPageToken := ""
 	maxPages := 100 // safety valve
 
+	crypto := isCryptoSymbol(symbol)
+
 	for page := 0; page < maxPages; page++ {
-		path := basePath + "/" + symbol + "/bars?timeframe=" + timeframe
+		var path string
+		if crypto {
+			// Alpaca sandbox doesn't support /v1beta3/crypto/us/{sym}/bars (404).
+			// Use query-param format: /v1beta3/crypto/us/bars?symbols={sym}&timeframe=...
+			path = "/v1beta3/crypto/us/bars?symbols=" + symbol + "&timeframe=" + timeframe
+		} else {
+			path = basePath + "/" + symbol + "/bars?timeframe=" + timeframe
+		}
 		if start != "" {
 			path += "&start=" + start
 		}
@@ -1059,24 +1068,45 @@ func (p *Provider) GetBars(ctx context.Context, symbol, timeframe, start, end st
 			return nil, err
 		}
 
-		var raw struct {
-			Bars []struct {
-				T  string  `json:"t"`
-				O  float64 `json:"o"`
-				H  float64 `json:"h"`
-				L  float64 `json:"l"`
-				C  float64 `json:"c"`
-				V  float64 `json:"v"`
-				VW float64 `json:"vw"`
-				N  int     `json:"n"`
-			} `json:"bars"`
-			NextPageToken string `json:"next_page_token"`
-		}
-		if err := json.Unmarshal(data, &raw); err != nil {
-			return nil, err
+		type barEntry struct {
+			T  string  `json:"t"`
+			O  float64 `json:"o"`
+			H  float64 `json:"h"`
+			L  float64 `json:"l"`
+			C  float64 `json:"c"`
+			V  float64 `json:"v"`
+			VW float64 `json:"vw"`
+			N  int     `json:"n"`
 		}
 
-		for _, b := range raw.Bars {
+		var bars []barEntry
+		var nextToken string
+
+		if crypto {
+			// Crypto: {"bars":{"BTC/USD":[{...}]}, "next_page_token":"..."}
+			var raw struct {
+				Bars          map[string][]barEntry `json:"bars"`
+				NextPageToken string                `json:"next_page_token"`
+			}
+			if err := json.Unmarshal(data, &raw); err != nil {
+				return nil, err
+			}
+			bars = raw.Bars[symbol]
+			nextToken = raw.NextPageToken
+		} else {
+			// Stock: {"bars":[{...}], "next_page_token":"..."}
+			var raw struct {
+				Bars          []barEntry `json:"bars"`
+				NextPageToken string     `json:"next_page_token"`
+			}
+			if err := json.Unmarshal(data, &raw); err != nil {
+				return nil, err
+			}
+			bars = raw.Bars
+			nextToken = raw.NextPageToken
+		}
+
+		for _, b := range bars {
 			allBars = append(allBars, &types.Bar{
 				Timestamp:  b.T,
 				Open:       b.O,
@@ -1089,7 +1119,7 @@ func (p *Provider) GetBars(ctx context.Context, symbol, timeframe, start, end st
 			})
 		}
 
-		if raw.NextPageToken == "" {
+		if nextToken == "" {
 			break
 		}
 		// If caller specified a limit and we have enough, stop.
@@ -1097,7 +1127,7 @@ func (p *Provider) GetBars(ctx context.Context, symbol, timeframe, start, end st
 			allBars = allBars[:limit]
 			break
 		}
-		nextPageToken = raw.NextPageToken
+		nextPageToken = nextToken
 	}
 
 	return allBars, nil

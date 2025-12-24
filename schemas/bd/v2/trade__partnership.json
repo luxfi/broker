@@ -1,0 +1,137 @@
+{
+  "webhook_event": {
+    "event_id": "evt_trade_part_001",
+    "event_type": "trade.executed",
+    "endpoint": "POST /v1/webhooks/trade",
+    "timestamp": "2026-03-22T14:32:00.000Z",
+    "version": "2.0.0",
+    "transaction_type": "trade",
+    "blockchain_transaction_id": "0x6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b",
+    "recipients": [
+      {
+        "recipient_id": "rec_001",
+        "name": "Piper Sandler",
+        "role": "buyer_broker_dealer",
+        "delivered_at": "2026-03-22T14:32:01.123Z",
+        "delivery_status": "delivered"
+      },
+      {
+        "recipient_id": "rec_002",
+        "name": "Oppenheimer & Co.",
+        "role": "seller_broker_dealer",
+        "delivered_at": "2026-03-22T14:32:01.456Z",
+        "delivery_status": "delivered"
+      },
+      {
+        "recipient_id": "rec_003",
+        "name": "Computershare Trust Company",
+        "role": "transfer_agent",
+        "delivered_at": "2026-03-22T14:32:01.789Z",
+        "delivery_status": "delivered"
+      }
+    ]
+  },
+  "transaction": {
+    "transaction_id": "txn_part_6f7g8h9i",
+    "transaction_type": "secondary_market_transfer",
+    "status": "pending_compliance_clearance",
+    "initiated_at": "2026-03-22T14:30:00.000Z",
+    "description": "Secondary market transfer of LP Common Units \u2014 buyer-initiated",
+    "security": {
+      "asset_id": "asset_part_2l3m",
+      "asset_name": "Summit Energy Partners LP \u2014 Common Units",
+      "asset_type": "private_security",
+      "security_class": "Limited Partnership Units",
+      "share_class": "Common",
+      "cusip": null,
+      "isin": null,
+      "issuer_id": "iss_summit_energy_partners_0004",
+      "issuer_name": "Summit Energy Partners LP",
+      "issuer_type": "Limited Partnership",
+      "number_of_shares": 750,
+      "price_per_share": 18.0,
+      "currency": "USD",
+      "gross_trade_amount": 13500.0,
+      "accrued_interest": 0.0,
+      "commissions": {
+        "buyer_broker_dealer": {
+          "firm_name": "Piper Sandler",
+          "crd_number": "665",
+          "commission_type": "percentage_of_gross",
+          "commission_rate": 0.005,
+          "commission_amount": 67.5,
+          "currency": "USD"
+        },
+        "seller_broker_dealer": {
+          "firm_name": "Oppenheimer & Co.",
+          "crd_number": "249",
+          "commission_type": "flat_fee",
+          "commission_rate": null,
+          "commission_amount": 67.5,
+          "currency": "USD"
+        },
+        "total_commissions": 135.0
+      },
+      "net_trade_amount": 13635.0,
+      "trade_execution_datetime": "2026-03-22T14:30:00.000Z",
+      "price_determination_method": "negotiated",
+      "bid_price": 17.75,
+      "ask_price": 18.25,
+      "last_valuation_price": 17.5,
+      "last_valuation_date": "2026-02-15"
+    },
+    "settlement": {
+      "settlement_date": "2026-03-24T00:00:00.000Z",
+      "settlement_type": "bilateral",
+      "settlement_status": "pending",
+      "settlement_currency": "USD"
+    },
+    "restrictions": {
+      "legend_required": true,
+      "rule_144_holding_period_met": true,
+      "transfer_restrictions": "Subject to partnership agreement, general partner consent, and right of first refusal",
+      "lock_up_expiry_date": null
+    }
+  },
+  "buyer": {
+    "investor_id": "inv_entity_blackridge_capital_lp_0004",
+    "account_id": "acct_buyer_part_ff6g7h8i",
+    "account_type": "entity",
+    "broker_dealer": {
+      "firm_name": "Piper Sandler",
+      "crd_number": "665",
+      "finra_member": true
+    },
+    "compliance_ref": {
+      "endpoint": "GET /v1/investors/inv_entity_blackridge_capital_lp_0004/compliance",
+      "description": "Fetch full KYC, KYB, accreditation, PEPs & Sanctions, adverse media, and transaction monitoring data for this investor."
+    }
+  },
+  "seller": {
+    "investor_id": "inv_indv_patricia_nguyen_0099",
+    "account_id": "acct_seller_indv_part",
+    "account_type": "individual",
+    "broker_dealer": {
+      "firm_name": "Oppenheimer & Co.",
+      "crd_number": "249",
+      "finra_member": true
+    },
+    "compliance_ref": {
+      "endpoint": "GET /v1/investors/inv_indv_patricia_nguyen_0099/compliance",
+      "description": "Fetch full KYC, KYB, accreditation, PEPs & Sanctions, adverse media, and transaction monitoring data for this investor."
+    }
+  },
+  "transfer_agent": {
+    "firm_name": "Computershare Trust Company",
+    "sec_registered": true,
+    "sec_registration_number": "84-01234",
+    "acknowledgment": {
+      "acknowledged": true,
+      "acknowledged_at": "2026-03-22T14:32:05.000Z",
+      "transfer_instruction_id": "ti_part_ff6g7h8i",
+      "record_date": "2026-03-22T00:00:00.000Z",
+      "units_to_transfer": 750,
+      "status": "pending_transfer"
+    }
+  }
+}

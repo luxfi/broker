@@ -1,0 +1,135 @@
+{
+  "webhook_event": {
+    "event_id": "evt_trade_llc_001",
+    "event_type": "trade.executed",
+    "endpoint": "POST /v1/webhooks/trade",
+    "timestamp": "2026-03-22T14:32:00.000Z",
+    "version": "2.0.0",
+    "transaction_type": "trade",
+    "blockchain_transaction_id": "0x2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d",
+    "recipients": [
+      {
+        "recipient_id": "rec_001",
+        "name": "Apex Clearing Corporation",
+        "role": "buyer_broker_dealer",
+        "delivered_at": "2026-03-22T14:32:01.123Z",
+        "delivery_status": "delivered"
+      },
+      {
+        "recipient_id": "rec_002",
+        "name": "Pershing LLC",
+        "role": "seller_broker_dealer",
+        "delivered_at": "2026-03-22T14:32:01.456Z",
+        "delivery_status": "delivered"
+      },
+      {
+        "recipient_id": "rec_003",
+        "name": "Computershare Trust Company",
+        "role": "transfer_agent",
+        "delivered_at": "2026-03-22T14:32:01.789Z",
+        "delivery_status": "delivered"
+      }
+    ]
+  },
+  "transaction": {
+    "transaction_id": "txn_llc_3c4d5e6f",
+    "transaction_type": "secondary_market_transfer",
+    "status": "pending_compliance_clearance",
+    "initiated_at": "2026-03-22T14:30:00.000Z",
+    "description": "Secondary market transfer of Class A Units \u2014 buyer-initiated",
+    "security": {
+      "asset_id": "asset_llc_9i0j",
+      "asset_name": "Acme Holdings LLC \u2014 Class A Units",
+      "asset_type": "private_security",
+      "security_class": "Membership Units",
+      "share_class": "Class A",
+      "cusip": null,
+      "isin": null,
+      "issuer_id": "iss_acme_holdings_llc_0002",
+      "issuer_name": "Acme Holdings LLC",
+      "issuer_type": "Limited Liability Company",
+      "number_of_shares": 500,
+      "price_per_share": 30.0,
+      "currency": "USD",
+      "gross_trade_amount": 15000.0,
+      "accrued_interest": 0.0,
+      "commissions": {
+        "buyer_broker_dealer": {
+          "firm_name": "Apex Clearing Corporation",
+          "crd_number": "13071",
+          "commission": 75.0,
+          "commission_type": "flat_fee",
+          "currency": "USD"
+        },
+        "seller_broker_dealer": {
+          "firm_name": "Pershing LLC",
+          "crd_number": "7560",
+          "commission": 75.0,
+          "commission_type": "flat_fee",
+          "currency": "USD"
+        },
+        "total_commissions": 150.0
+      },
+      "net_trade_amount": 15150.0,
+      "trade_execution_datetime": "2026-03-22T14:30:00.000Z",
+      "price_determination_method": "negotiated",
+      "bid_price": 29.75,
+      "ask_price": 30.25,
+      "last_valuation_price": 29.5,
+      "last_valuation_date": "2026-02-01"
+    },
+    "settlement": {
+      "settlement_date": "2026-03-24T00:00:00.000Z",
+      "settlement_type": "bilateral",
+      "settlement_status": "pending",
+      "settlement_currency": "USD"
+    },
+    "restrictions": {
+      "legend_required": true,
+      "rule_144_holding_period_met": null,
+      "transfer_restrictions": "Subject to operating agreement transfer restrictions and managing member consent",
+      "lock_up_expiry_date": null
+    }
+  },
+  "buyer": {
+    "investor_id": "inv_entity_acme_holdings_llc_0002",
+    "account_id": "acct_buyer_llc_cc3d4e5f",
+    "account_type": "entity",
+    "broker_dealer": {
+      "firm_name": "Apex Clearing Corporation",
+      "crd_number": "13071",
+      "finra_member": true
+    },
+    "compliance_ref": {
+      "endpoint": "GET /v1/investors/inv_entity_acme_holdings_llc_0002/compliance",
+      "description": "Fetch full KYC, KYB, accreditation, PEPs & Sanctions, adverse media, and transaction monitoring data for this investor."
+    }
+  },
+  "seller": {
+    "investor_id": "inv_indv_patricia_nguyen_0099",
+    "account_id": "acct_seller_indv_llc",
+    "account_type": "individual",
+    "broker_dealer": {
+      "firm_name": "Pershing LLC",
+      "crd_number": "7560",
+      "finra_member": true
+    },
+    "compliance_ref": {
+      "endpoint": "GET /v1/investors/inv_indv_patricia_nguyen_0099/compliance",
+      "description": "Fetch full KYC, KYB, accreditation, PEPs & Sanctions, adverse media, and transaction monitoring data for this investor."
+    }
+  },
+  "transfer_agent": {
+    "firm_name": "Computershare Trust Company",
+    "sec_registered": true,
+    "sec_registration_number": "84-01234",
+    "acknowledgment": {
+      "acknowledged": true,
+      "acknowledged_at": "2026-03-22T14:32:05.000Z",
+      "transfer_instruction_id": "ti_llc_cc3d4e5f",
+      "record_date": "2026-03-22T00:00:00.000Z",
+      "units_to_transfer": 500,
+      "status": "pending_transfer"
+    }
+  }
+}
