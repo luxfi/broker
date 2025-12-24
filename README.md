@@ -1,4 +1,4 @@
-# Lux Broker
+# Broker
 
 Multi-venue trading router with smart order routing, pre-trade risk, instant settlement, and real-time market data aggregation across 16 institutional providers.
 

@@ -1,0 +1,135 @@
+{
+  "webhook_event": {
+    "event_id": "evt_trade_corp_001",
+    "event_type": "trade.executed",
+    "endpoint": "POST /v1/webhooks/trade",
+    "timestamp": "2026-03-22T14:32:00.000Z",
+    "version": "2.0.0",
+    "transaction_type": "trade",
+    "blockchain_transaction_id": "0x3a9f2c1d8e4b7056af1c2e3d4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a",
+    "recipients": [
+      {
+        "recipient_id": "rec_001",
+        "name": "Raymond James Financial",
+        "role": "buyer_broker_dealer",
+        "delivered_at": "2026-03-22T14:32:01.123Z",
+        "delivery_status": "delivered"
+      },
+      {
+        "recipient_id": "rec_002",
+        "name": "Edward Jones",
+        "role": "seller_broker_dealer",
+        "delivered_at": "2026-03-22T14:32:01.456Z",
+        "delivery_status": "delivered"
+      },
+      {
+        "recipient_id": "rec_003",
+        "name": "Computershare Trust Company",
+        "role": "transfer_agent",
+        "delivered_at": "2026-03-22T14:32:01.789Z",
+        "delivery_status": "delivered"
+      }
+    ]
+  },
+  "transaction": {
+    "transaction_id": "txn_corp_1a2b3c4d",
+    "transaction_type": "secondary_market_transfer",
+    "status": "pending_compliance_clearance",
+    "initiated_at": "2026-03-22T14:30:00.000Z",
+    "description": "Secondary market transfer of Series B Preferred Stock \u2014 buyer-initiated",
+    "security": {
+      "asset_id": "asset_corp_7g8h",
+      "asset_name": "Bridgewater Capital Inc. \u2014 Series B Preferred Stock",
+      "asset_type": "private_security",
+      "security_class": "Preferred Stock",
+      "share_class": "Series B",
+      "cusip": null,
+      "isin": null,
+      "issuer_id": "iss_bridgewater_capital_0001",
+      "issuer_name": "Bridgewater Capital Inc.",
+      "issuer_type": "Private Corporation",
+      "number_of_shares": 1000,
+      "price_per_share": 45.0,
+      "currency": "USD",
+      "gross_trade_amount": 45000.0,
+      "accrued_interest": 0.0,
+      "commissions": {
+        "buyer_broker_dealer": {
+          "firm_name": "Raymond James Financial",
+          "crd_number": "705",
+          "commission": 112.5,
+          "commission_type": "flat_fee",
+          "currency": "USD"
+        },
+        "seller_broker_dealer": {
+          "firm_name": "Edward Jones",
+          "crd_number": "250",
+          "commission": 112.5,
+          "commission_type": "flat_fee",
+          "currency": "USD"
+        },
+        "total_commissions": 225.0
+      },
+      "net_trade_amount": 45225.0,
+      "trade_execution_datetime": "2026-03-22T14:30:00.000Z",
+      "price_determination_method": "negotiated",
+      "bid_price": 44.5,
+      "ask_price": 45.5,
+      "last_valuation_price": 44.0,
+      "last_valuation_date": "2026-01-15"
+    },
+    "settlement": {
+      "settlement_date": "2026-03-24T00:00:00.000Z",
+      "settlement_type": "bilateral",
+      "settlement_status": "pending",
+      "settlement_currency": "USD"
+    },
+    "restrictions": {
+      "legend_required": true,
+      "rule_144_holding_period_met": false,
+      "transfer_restrictions": "Subject to issuer consent, right of first refusal, and applicable securities laws",
+      "lock_up_expiry_date": null
+    }
+  },
+  "buyer": {
+    "investor_id": "inv_entity_meridian_growth_corp_0001",
+    "account_id": "acct_buyer_corp_aa1b2c3d",
+    "account_type": "entity",
+    "broker_dealer": {
+      "firm_name": "Raymond James Financial",
+      "crd_number": "705",
+      "finra_member": true
+    },
+    "compliance_ref": {
+      "endpoint": "GET /v1/investors/inv_entity_meridian_growth_corp_0001/compliance",
+      "description": "Fetch full KYC, KYB, accreditation, PEPs & Sanctions, adverse media, and transaction monitoring data for this investor."
+    }
+  },
+  "seller": {
+    "investor_id": "inv_indv_patricia_nguyen_0099",
+    "account_id": "acct_seller_indv_corp",
+    "account_type": "individual",
+    "broker_dealer": {
+      "firm_name": "Edward Jones",
+      "crd_number": "250",
+      "finra_member": true
+    },
+    "compliance_ref": {
+      "endpoint": "GET /v1/investors/inv_indv_patricia_nguyen_0099/compliance",
+      "description": "Fetch full KYC, KYB, accreditation, PEPs & Sanctions, adverse media, and transaction monitoring data for this investor."
+    }
+  },
+  "transfer_agent": {
+    "firm_name": "Computershare Trust Company",
+    "sec_registered": true,
+    "sec_registration_number": "84-01234",
+    "acknowledgment": {
+      "acknowledged": true,
+      "acknowledged_at": "2026-03-22T14:32:05.000Z",
+      "transfer_instruction_id": "ti_corp_aa1b2c3d",
+      "record_date": "2026-03-22T00:00:00.000Z",
+      "units_to_transfer": 1000,
+      "status": "pending_transfer"
+    }
+  }
+}

@@ -1,0 +1,78 @@
+# Broker — Go multi-provider broker + compliance API
+# Deploy: kubectl apply -f k8s/deployment.yaml
+# Image built by CI: ghcr.io/luxfi/broker:{ENV}
+# Ingress: broker.{ENV}.example.com (defined in universe/k8s/{ENV}/ingress.yaml)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: broker
+  namespace: broker
+  labels:
+    app: broker
+    environment: "{ENV}"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: broker
+  template:
+    metadata:
+      labels:
+        app: broker
+        environment: "{ENV}"
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: broker
+          image: ghcr.io/luxfi/broker:{ENV}
+          ports:
+            - containerPort: 8090
+              name: http
+          env:
+            - name: BROKER_LISTEN
+              value: ":8090"
+            - name: BROKER_DEV_MODE
+              value: "false"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: broker-secrets
+                  key: DATABASE_URL
+                  optional: true
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8090
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8090
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: broker
+  namespace: broker
+spec:
+  selector:
+    app: broker
+  ports:
+    - port: 8090
+      targetPort: 8090
+      name: http
