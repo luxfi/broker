@@ -3,7 +3,6 @@ package auth
 import (
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 )
@@ -158,23 +157,6 @@ func TestMiddlewareEmptyKeyRejects(t *testing.T) {
 	}
 }
 
-func TestMiddlewareEmptyKeyDevMode(t *testing.T) {
-	os.Setenv("BROKER_DEV_MODE", "true")
-	defer os.Unsetenv("BROKER_DEV_MODE")
-
-	s := NewStore()
-	handler := Middleware(s)(http.HandlerFunc(okHandler))
-
-	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
-	rr := httptest.NewRecorder()
-
-	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 in dev mode, got %d", rr.Code)
-	}
-}
-
 func TestMiddlewareWrongKeyRejects(t *testing.T) {
 	s := NewStore()
 	s.Add(&APIKey{Key: "real-key"})
@@ -251,10 +233,7 @@ func TestRequirePermissionNoKey(t *testing.T) {
 	}
 }
 
-func TestRequirePermissionDevModeNoKey(t *testing.T) {
-	os.Setenv("BROKER_DEV_MODE", "true")
-	defer os.Unsetenv("BROKER_DEV_MODE")
-
+func TestRequirePermissionNoKeyRejects(t *testing.T) {
 	s := NewStore()
 	handler := RequirePermission(s, "trade")(http.HandlerFunc(okHandler))
 	req := httptest.NewRequest(http.MethodGet, "/api/order", nil)
@@ -262,7 +241,7 @@ func TestRequirePermissionDevModeNoKey(t *testing.T) {
 
 	handler.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 in dev mode, got %d", rr.Code)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without key, got %d", rr.Code)
 	}
 }

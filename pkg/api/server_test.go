@@ -7,29 +7,54 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/luxfi/broker/pkg/auth"
 	"github.com/luxfi/broker/pkg/provider"
 )
 
+const testAPIKey = "test-api-key-for-integration-tests"
+
 func setupTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	os.Setenv("BROKER_DEV_MODE", "true")
 	os.Setenv("ADMIN_SECRET", "test-secret")
 	t.Cleanup(func() {
-		os.Unsetenv("BROKER_DEV_MODE")
 		os.Unsetenv("ADMIN_SECRET")
 	})
 
 	registry := provider.NewRegistry()
 	srv := NewServer(registry, ":0")
+	// Register a test API key instead of using dev mode bypass
+	srv.AuthStore().Add(&auth.APIKey{
+		Key:         testAPIKey,
+		Name:        "test",
+		OrgID:       "test-org",
+		Permissions: []string{"admin"},
+		CreatedAt:   time.Now(),
+	})
 	return httptest.NewServer(srv.Handler())
+}
+
+// authedGet makes a GET request with the test API key
+func authedGet(url string) (*http.Response, error) {
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("Authorization", "Bearer "+testAPIKey)
+	return http.DefaultClient.Do(req)
+}
+
+// authedPost makes a POST request with the test API key
+func authedPost(url, contentType string, body *strings.Reader) (*http.Response, error) {
+	req, _ := http.NewRequest("POST", url, body)
+	req.Header.Set("Authorization", "Bearer "+testAPIKey)
+	req.Header.Set("Content-Type", contentType)
+	return http.DefaultClient.Do(req)
 }
 
 func TestHealthz(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/healthz")
+	resp, err := authedGet(ts.URL + "/healthz")
 	if err != nil {
 		t.Fatalf("GET /healthz: %v", err)
 	}
@@ -50,7 +75,7 @@ func TestListProviders(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/v1/providers")
+	resp, err := authedGet(ts.URL + "/v1/providers")
 	if err != nil {
 		t.Fatalf("GET /v1/providers: %v", err)
 	}
@@ -76,7 +101,7 @@ func TestGetCapabilities(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/v1/providers/capabilities")
+	resp, err := authedGet(ts.URL + "/v1/providers/capabilities")
 	if err != nil {
 		t.Fatalf("GET /v1/providers/capabilities: %v", err)
 	}
@@ -91,7 +116,7 @@ func TestRiskCheck(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/v1/risk/check?provider=test&account_id=a1&symbol=BTC&side=buy&qty=1")
+	resp, err := authedGet(ts.URL + "/v1/risk/check?provider=test&account_id=a1&symbol=BTC&side=buy&qty=1")
 	if err != nil {
 		t.Fatalf("GET /v1/risk/check: %v", err)
 	}
@@ -112,7 +137,7 @@ func TestAuditQuery(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/v1/audit")
+	resp, err := authedGet(ts.URL + "/v1/audit")
 	if err != nil {
 		t.Fatalf("GET /v1/audit: %v", err)
 	}
@@ -127,7 +152,7 @@ func TestAuditStats(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/v1/audit/stats")
+	resp, err := authedGet(ts.URL + "/v1/audit/stats")
 	if err != nil {
 		t.Fatalf("GET /v1/audit/stats: %v", err)
 	}
@@ -142,7 +167,7 @@ func TestAuditExport(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/v1/audit/export")
+	resp, err := authedGet(ts.URL + "/v1/audit/export")
 	if err != nil {
 		t.Fatalf("GET /v1/audit/export: %v", err)
 	}
@@ -165,7 +190,7 @@ func TestListAccountsEmptyRegistry(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/v1/accounts")
+	resp, err := authedGet(ts.URL + "/v1/accounts")
 	if err != nil {
 		t.Fatalf("GET /v1/accounts: %v", err)
 	}
@@ -181,7 +206,7 @@ func TestListAssetsUnknownProvider(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/v1/assets/nonexistent")
+	resp, err := authedGet(ts.URL + "/v1/assets/nonexistent")
 	if err != nil {
 		t.Fatalf("GET /v1/assets/nonexistent: %v", err)
 	}
@@ -210,7 +235,7 @@ func TestCreateAccountBadRequest(t *testing.T) {
 
 	// Valid JSON body but no provider registered -> 400
 	body := `{"provider":"alpaca","given_name":"Test","family_name":"User","email":"test@example.com"}`
-	resp, err := http.Post(ts.URL+"/v1/accounts", "application/json", strings.NewReader(body))
+	resp, err := authedPost(ts.URL+"/v1/accounts", "application/json", strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /v1/accounts: %v", err)
 	}
@@ -233,7 +258,7 @@ func TestCreateAccountInvalidBody(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	resp, err := http.Post(ts.URL+"/v1/accounts", "application/json", strings.NewReader("not json"))
+	resp, err := authedPost(ts.URL+"/v1/accounts", "application/json", strings.NewReader("not json"))
 	if err != nil {
 		t.Fatalf("POST /v1/accounts: %v", err)
 	}
@@ -248,7 +273,7 @@ func TestRiskCheckResponseStructure(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/v1/risk/check?provider=alpaca&account_id=acct1&symbol=AAPL&side=buy&qty=10&price=150&type=limit")
+	resp, err := authedGet(ts.URL + "/v1/risk/check?provider=alpaca&account_id=acct1&symbol=AAPL&side=buy&qty=10&price=150&type=limit")
 	if err != nil {
 		t.Fatalf("GET /v1/risk/check: %v", err)
 	}
@@ -275,7 +300,7 @@ func TestAuditStatsResponseStructure(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/v1/audit/stats")
+	resp, err := authedGet(ts.URL + "/v1/audit/stats")
 	if err != nil {
 		t.Fatalf("GET /v1/audit/stats: %v", err)
 	}
@@ -306,7 +331,7 @@ func TestAuditExportContentDisposition(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/v1/audit/export")
+	resp, err := authedGet(ts.URL + "/v1/audit/export")
 	if err != nil {
 		t.Fatalf("GET /v1/audit/export: %v", err)
 	}
@@ -324,19 +349,16 @@ func TestAuditExportContentDisposition(t *testing.T) {
 	}
 }
 
-func TestAuthRequiredWithoutDevMode(t *testing.T) {
-	os.Setenv("BROKER_DEV_MODE", "")
+func TestAuthRequiredWithoutKey(t *testing.T) {
 	os.Setenv("ADMIN_SECRET", "test-secret")
-	defer func() {
-		os.Unsetenv("BROKER_DEV_MODE")
-		os.Unsetenv("ADMIN_SECRET")
-	}()
+	defer os.Unsetenv("ADMIN_SECRET")
 
 	registry := provider.NewRegistry()
 	srv := NewServer(registry, ":0")
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
+	// No API key — should get 401
 	resp, err := http.Get(ts.URL + "/v1/providers")
 	if err != nil {
 		t.Fatalf("GET /v1/providers: %v", err)
@@ -349,18 +371,15 @@ func TestAuthRequiredWithoutDevMode(t *testing.T) {
 }
 
 func TestHealthzBypassesAuth(t *testing.T) {
-	os.Setenv("BROKER_DEV_MODE", "")
 	os.Setenv("ADMIN_SECRET", "test-secret")
-	defer func() {
-		os.Unsetenv("BROKER_DEV_MODE")
-		os.Unsetenv("ADMIN_SECRET")
-	}()
+	defer os.Unsetenv("ADMIN_SECRET")
 
 	registry := provider.NewRegistry()
 	srv := NewServer(registry, ":0")
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
+	// Healthz should work without any key
 	resp, err := http.Get(ts.URL + "/healthz")
 	if err != nil {
 		t.Fatalf("GET /healthz: %v", err)

@@ -2,7 +2,10 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -44,7 +47,12 @@ type Server struct {
 func NewServer(registry *provider.Registry, listenAddr string) *Server {
 	jwtSecret := os.Getenv("ADMIN_SECRET")
 	if jwtSecret == "" {
-		jwtSecret = "change-me-in-production"
+		b := make([]byte, 32)
+		if _, err := rand.Read(b); err != nil {
+			panic("crypto/rand unavailable: " + err.Error())
+		}
+		jwtSecret = hex.EncodeToString(b)
+		log.Println("WARNING: ADMIN_SECRET not set, using random secret (admin tokens will not survive restart)")
 	}
 
 	s := &Server{

@@ -8,7 +8,9 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/luxfi/broker/pkg/auth"
 	"github.com/luxfi/broker/pkg/provider"
 	"github.com/luxfi/broker/pkg/types"
 )
@@ -122,16 +124,18 @@ func (m *mockProvider) GetCalendar(_ context.Context, _, _ string) ([]*types.Mar
 
 func setupTestServerWithMock(t *testing.T, mp *mockProvider) *httptest.Server {
 	t.Helper()
-	os.Setenv("BROKER_DEV_MODE", "true")
 	os.Setenv("ADMIN_SECRET", "test-secret")
 	t.Cleanup(func() {
-		os.Unsetenv("BROKER_DEV_MODE")
 		os.Unsetenv("ADMIN_SECRET")
 	})
 
 	registry := provider.NewRegistry()
 	registry.Register(mp)
 	srv := NewServer(registry, ":0")
+	srv.AuthStore().Add(&auth.APIKey{
+		Key: testAPIKey, Name: "test", OrgID: "test-org",
+		Permissions: []string{"admin"}, CreatedAt: time.Now(),
+	})
 	return httptest.NewServer(srv.Handler())
 }
 
@@ -139,7 +143,7 @@ func TestFrontendAssetsEmpty(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/v1/exchange/assets")
+	resp, err := authedGet(ts.URL + "/v1/exchange/assets")
 	if err != nil {
 		t.Fatalf("GET /v1/exchange/assets: %v", err)
 	}
@@ -173,7 +177,7 @@ func TestFrontendAssetsWithProvider(t *testing.T) {
 	defer ts.Close()
 
 	// All assets (tradable only)
-	resp, err := http.Get(ts.URL + "/v1/exchange/assets")
+	resp, err := authedGet(ts.URL + "/v1/exchange/assets")
 	if err != nil {
 		t.Fatalf("GET /v1/exchange/assets: %v", err)
 	}
@@ -204,7 +208,7 @@ func TestFrontendAssetsTypeFilter(t *testing.T) {
 	ts := setupTestServerWithMock(t, mp)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/v1/exchange/assets?type=crypto")
+	resp, err := authedGet(ts.URL + "/v1/exchange/assets?type=crypto")
 	if err != nil {
 		t.Fatalf("GET /v1/exchange/assets?type=crypto: %v", err)
 	}
@@ -222,7 +226,7 @@ func TestFrontendAssetsInvalidType(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/v1/exchange/assets?type=invalid")
+	resp, err := authedGet(ts.URL + "/v1/exchange/assets?type=invalid")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -237,7 +241,7 @@ func TestCryptoPricesEmpty(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/v1/exchange/crypto-prices")
+	resp, err := authedGet(ts.URL + "/v1/exchange/crypto-prices")
 	if err != nil {
 		t.Fatalf("GET /v1/exchange/crypto-prices: %v", err)
 	}
@@ -270,7 +274,7 @@ func TestCryptoPricesWithData(t *testing.T) {
 	ts := setupTestServerWithMock(t, mp)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/v1/exchange/crypto-prices")
+	resp, err := authedGet(ts.URL + "/v1/exchange/crypto-prices")
 	if err != nil {
 		t.Fatalf("GET /v1/exchange/crypto-prices: %v", err)
 	}
@@ -295,7 +299,7 @@ func TestChartDataEmpty(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/v1/exchange/charts/AAPL")
+	resp, err := authedGet(ts.URL + "/v1/exchange/charts/AAPL")
 	if err != nil {
 		t.Fatalf("GET /v1/exchange/charts/AAPL: %v", err)
 	}
@@ -324,7 +328,7 @@ func TestChartDataWithBars(t *testing.T) {
 	ts := setupTestServerWithMock(t, mp)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/v1/exchange/charts/AAPL?timeframe=1D&limit=10")
+	resp, err := authedGet(ts.URL + "/v1/exchange/charts/AAPL?timeframe=1D&limit=10")
 	if err != nil {
 		t.Fatalf("GET /v1/exchange/charts/AAPL: %v", err)
 	}
@@ -349,7 +353,7 @@ func TestFrontendOrdersNoAccounts(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/v1/exchange/orders")
+	resp, err := authedGet(ts.URL + "/v1/exchange/orders")
 	if err != nil {
 		t.Fatalf("GET /v1/exchange/orders: %v", err)
 	}
@@ -374,6 +378,7 @@ func TestFrontendOrdersWithAccount(t *testing.T) {
 	defer ts.Close()
 
 	req, _ := http.NewRequest("GET", ts.URL+"/v1/exchange/orders", nil)
+	req.Header.Set("Authorization", "Bearer "+testAPIKey)
 	req.Header.Set("X-Gateway-User-Id", "user1")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -398,7 +403,7 @@ func TestFrontendCreateOrderNoAccounts(t *testing.T) {
 	defer ts.Close()
 
 	body := `{"symbol":"AAPL","qty":"1","side":"buy"}`
-	resp, err := http.Post(ts.URL+"/v1/exchange/orders", "application/json", strings.NewReader(body))
+	resp, err := authedPost(ts.URL+"/v1/exchange/orders", "application/json", strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /v1/exchange/orders: %v", err)
 	}
@@ -422,6 +427,7 @@ func TestFrontendCreateOrderSuccess(t *testing.T) {
 	body := `{"symbol":"AAPL","qty":"10","side":"buy"}`
 	req, _ := http.NewRequest("POST", ts.URL+"/v1/exchange/orders", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+testAPIKey)
 	req.Header.Set("X-Gateway-User-Id", "user1")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -452,7 +458,7 @@ func TestFrontendCreateOrderValidation(t *testing.T) {
 
 	// Missing symbol
 	body := `{"qty":"10","side":"buy"}`
-	resp, err := http.Post(ts.URL+"/v1/exchange/orders", "application/json", strings.NewReader(body))
+	resp, err := authedPost(ts.URL+"/v1/exchange/orders", "application/json", strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST /v1/exchange/orders: %v", err)
 	}
@@ -464,7 +470,7 @@ func TestFrontendCreateOrderValidation(t *testing.T) {
 
 	// Missing side
 	body2 := `{"symbol":"AAPL","qty":"10"}`
-	resp2, err := http.Post(ts.URL+"/v1/exchange/orders", "application/json", strings.NewReader(body2))
+	resp2, err := authedPost(ts.URL+"/v1/exchange/orders", "application/json", strings.NewReader(body2))
 	if err != nil {
 		t.Fatalf("POST /v1/exchange/orders: %v", err)
 	}
@@ -479,7 +485,7 @@ func TestFrontendPositionsNoAccounts(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/v1/exchange/positions")
+	resp, err := authedGet(ts.URL + "/v1/exchange/positions")
 	if err != nil {
 		t.Fatalf("GET /v1/exchange/positions: %v", err)
 	}
@@ -510,7 +516,7 @@ func TestFrontendPositionsWithAccount(t *testing.T) {
 	defer ts.Close()
 
 	// No user ID -> falls back to first account
-	resp, err := http.Get(ts.URL + "/v1/exchange/positions")
+	resp, err := authedGet(ts.URL + "/v1/exchange/positions")
 	if err != nil {
 		t.Fatalf("GET /v1/exchange/positions: %v", err)
 	}
@@ -549,6 +555,7 @@ func TestFrontendPortfolioSingleAccount(t *testing.T) {
 	defer ts.Close()
 
 	req, _ := http.NewRequest("GET", ts.URL+"/v1/exchange/portfolio", nil)
+	req.Header.Set("Authorization", "Bearer "+testAPIKey)
 	req.Header.Set("X-Hanzo-User-Id", "user1")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -574,7 +581,7 @@ func TestFrontendPortfolioNoAccounts(t *testing.T) {
 	ts := setupTestServer(t)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/v1/exchange/portfolio")
+	resp, err := authedGet(ts.URL + "/v1/exchange/portfolio")
 	if err != nil {
 		t.Fatalf("GET /v1/exchange/portfolio: %v", err)
 	}
