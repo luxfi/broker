@@ -13,9 +13,14 @@ import (
 	btprovider "github.com/hanzoai/commerce/payment/providers/braintree"
 
 	"github.com/luxfi/broker/pkg/api"
+	"github.com/luxfi/broker/pkg/compliance"
+	"github.com/luxfi/broker/pkg/db"
 	"github.com/luxfi/broker/pkg/funding"
+	brokergrpc "github.com/luxfi/broker/pkg/grpc"
+	"github.com/luxfi/broker/pkg/marketdata"
 	"github.com/luxfi/broker/pkg/provider"
 	"github.com/luxfi/broker/pkg/provider/envconfig"
+	"github.com/luxfi/broker/pkg/router"
 )
 
 func main() {
@@ -26,7 +31,11 @@ func main() {
 	registry := provider.NewRegistry()
 	n := envconfig.RegisterFromEnv(registry)
 	if n == 0 {
-		log.Fatal().Msg("No providers configured. Set provider env vars (ALPACA_API_KEY, etc.).")
+		if os.Getenv("BROKER_ENV") == "development" {
+			log.Warn().Msg("No providers configured — running in compliance-only mode")
+		} else {
+			log.Fatal().Msg("No providers configured. Set provider env vars (ALPACA_API_KEY, etc.).")
+		}
 	}
 
 	// --- Payment processors (Braintree, etc.) ---
@@ -46,8 +55,17 @@ func main() {
 
 	fundingSvc := funding.New()
 
+	// SOR core components (shared between REST and gRPC)
+	sor := router.New(registry)
+	twapScheduler := router.NewTWAPScheduler(registry, sor)
+	feed := marketdata.NewFeed()
+	arbThresholdBps := 5.0
+	arbDetector := marketdata.NewArbitrageDetector(feed, arbThresholdBps)
+
 	srv := api.NewServer(registry, listenAddr)
 	srv.SetFunding(fundingSvc)
+	srv.SetTWAP(twapScheduler)
+	srv.SetArbitrageDetector(arbDetector, arbThresholdBps)
 
 	// --- Admin Users ---
 	adminStore := srv.AdminStore()
@@ -58,20 +76,63 @@ func main() {
 		log.Info().Str("user", adminUser).Msg("Admin user configured")
 	}
 
+	// --- Compliance (KYC, onboarding, funds, eSign, RBAC) ---
+	var complianceStore compliance.ComplianceStore
+	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
+		pool, err := db.NewPostgresPool(context.Background(), dbURL)
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to connect to PostgreSQL")
+		}
+		defer pool.Close()
+		if err := db.RunMigrations(context.Background(), pool); err != nil {
+			log.Fatal().Err(err).Msg("Failed to run database migrations")
+		}
+		log.Info().Msg("PostgreSQL connected and migrations applied")
+		complianceStore = compliance.NewPostgresStore(pool)
+	} else {
+		complianceStore = compliance.NewMemoryStore()
+		log.Info().Msg("Using in-memory compliance store (set DATABASE_URL for PostgreSQL)")
+	}
+	if os.Getenv("BROKER_ENV") == "development" {
+		compliance.SeedStore(complianceStore)
+		log.Info().Msg("Compliance store seeded with demo data")
+	}
+	srv.Mount("/compliance", compliance.NewRouter(complianceStore, adminStore))
+	log.Info().Msg("Compliance routes mounted at /compliance")
+
+	// --- gRPC Server ---
+	grpcAddr := envOr("BROKER_GRPC_LISTEN", ":9090")
+	grpcSrv, err := brokergrpc.NewServer(brokergrpc.Config{
+		ListenAddr:        grpcAddr,
+		Registry:          registry,
+		Router:            sor,
+		TWAPScheduler:     twapScheduler,
+		Feed:              feed,
+		ArbitrageDetector: arbDetector,
+	})
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to create gRPC server")
+	}
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	errCh := make(chan error, 1)
+	errCh := make(chan error, 2)
 	go func() {
-		log.Info().Str("addr", listenAddr).Strs("providers", registry.List()).Msg("Broker API starting")
+		log.Info().Str("addr", listenAddr).Strs("providers", registry.List()).Msg("Broker REST API starting")
 		errCh <- srv.Start()
+	}()
+	go func() {
+		log.Info().Str("addr", grpcAddr).Msg("Broker gRPC API starting")
+		errCh <- grpcSrv.Serve()
 	}()
 
 	select {
 	case <-ctx.Done():
 		log.Info().Msg("Shutting down...")
+		grpcSrv.Stop()
 		if err := srv.Shutdown(context.Background()); err != nil {
-			log.Error().Err(err).Msg("Shutdown error")
+			log.Error().Err(err).Msg("REST shutdown error")
 		}
 	case err := <-errCh:
 		if err != nil {
