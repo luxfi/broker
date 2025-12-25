@@ -412,7 +412,7 @@ func (p *Provider) CreateOrder(ctx context.Context, providerAccountID string, re
 }
 
 func (p *Provider) ListOrders(ctx context.Context, providerAccountID string) ([]*types.Order, error) {
-	return p.ListOrdersFiltered(ctx, providerAccountID, nil)
+	return p.ListOrdersFiltered(ctx, providerAccountID, &types.ListOrdersParams{Status: "all"})
 }
 
 func (p *Provider) ListOrdersFiltered(ctx context.Context, providerAccountID string, params *types.ListOrdersParams) ([]*types.Order, error) {
