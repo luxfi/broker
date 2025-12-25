@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"os"
 	"sort"
 	"sync"
 	"time"
@@ -76,17 +77,20 @@ func NewRouter(store ComplianceStore, adminStore *admin.Store, opts ...RouterOpt
 	r := chi.NewRouter()
 
 	// CORS — explicit production origins only. No wildcards to prevent
-	// subdomain takeover attacks (MEDIUM-2).
+	// subdomain takeover attacks (MEDIUM-2). Localhost origins gated behind
+	// environment check (LOW-2).
+	corsOrigins := []string{
+		"https://admin.lux.exchange.com",
+		"https://exchange.lux.exchange.com",
+		"https://app.lux.exchange.com",
+		"https://app.lux.exchange",
+		"https://admin.lux.exchange",
+	}
+	if os.Getenv("BROKER_ENV") != "production" {
+		corsOrigins = append(corsOrigins, "http://localhost:3000", "http://localhost:3100")
+	}
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins: []string{
-			"https://admin.lux.exchange.com",
-			"https://exchange.lux.exchange.com",
-			"https://app.lux.exchange.com",
-			"https://app.lux.exchange",
-			"https://admin.lux.exchange",
-			"http://localhost:3000",
-			"http://localhost:3100",
-		},
+		AllowedOrigins: corsOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
 		AllowCredentials: true,
@@ -194,13 +198,15 @@ func NewRouter(store ComplianceStore, adminStore *admin.Store, opts ...RouterOpt
 			r.Post("/templates", guard("esign", "write", esign.handleCreateTemplate))
 		})
 
-		// Roles
+		// Roles — GET requires "roles:read" RBAC (HIGH-1).
+		// Mutation (POST/PATCH/DELETE) restricted to super_admin/owner to
+		// prevent role self-escalation (HIGH-3).
 		r.Route("/roles", func(r chi.Router) {
-			r.Get("/", roles.handleListRoles)
-			r.Post("/", guard("roles", "write", roles.handleCreateRole))
-			r.Get("/{id}", roles.handleGetRole)
-			r.Patch("/{id}", guard("roles", "write", roles.handleUpdateRole))
-			r.Delete("/{id}", guard("roles", "delete", roles.handleDeleteRole))
+			r.Get("/", guard("roles", "read", roles.handleListRoles))
+			r.Post("/", requireSuperAdmin(roles.handleCreateRole))
+			r.Get("/{id}", guard("roles", "read", roles.handleGetRole))
+			r.Patch("/{id}", requireSuperAdmin(roles.handleUpdateRole))
+			r.Delete("/{id}", requireSuperAdmin(roles.handleDeleteRole))
 		})
 
 		// Modules (for permission matrix)
@@ -294,6 +300,19 @@ func requireRole(store ComplianceStore, module, action string, next http.Handler
 		}
 
 		writeError(w, http.StatusForbidden, "insufficient permissions for "+module+":"+action)
+	}
+}
+
+// requireSuperAdmin rejects requests unless the JWT role is "super_admin" or
+// "owner". Used for role mutation endpoints to prevent self-escalation (HIGH-3).
+func requireSuperAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		roleName := admin.RoleFromContext(r.Context())
+		if roleName != "super_admin" && roleName != "owner" {
+			writeError(w, http.StatusForbidden, "role mutation requires super_admin or owner role")
+			return
+		}
+		next(w, r)
 	}
 }
 
