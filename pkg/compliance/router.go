@@ -12,7 +12,7 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/luxfi/broker/pkg/admin"
 	"github.com/luxfi/broker/pkg/auth"
-	"github.com/luxfi/broker/pkg/compliance/jube"
+	"github.com/luxfi/compliance/pkg/jube"
 )
 
 // RouterOption configures optional dependencies for the compliance router.
