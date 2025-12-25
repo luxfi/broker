@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/luxfi/broker/pkg/admin"
 	"github.com/rs/zerolog/log"
 )
 
@@ -112,12 +113,22 @@ func (h *applicationHandler) handleList(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, h.store.ListApplications())
 }
 
+// isTerminalStatus returns true if the application is in a final state
+// where no further step modifications are allowed.
+func isTerminalStatus(status ApplicationStatus) bool {
+	return status == AppApproved || status == AppRejected || status == AppSubmitted
+}
+
 // handleStep1 updates Step 1: Basic Info + Contact.
 func (h *applicationHandler) handleStep1(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	app, err := h.store.GetApplication(id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if isTerminalStatus(app.Status) {
+		writeError(w, http.StatusConflict, "application is in a terminal state and cannot be modified")
 		return
 	}
 
@@ -195,6 +206,14 @@ func (h *applicationHandler) handleStep2(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
+	if isTerminalStatus(app.Status) {
+		writeError(w, http.StatusConflict, "application is in a terminal state and cannot be modified")
+		return
+	}
+	if app.CurrentStep < 2 {
+		writeError(w, http.StatusBadRequest, "step 1 must be completed before step 2")
+		return
+	}
 
 	var req struct {
 		Provider       string `json:"provider"`        // onfido, berbix, idmerit
@@ -254,6 +273,14 @@ func (h *applicationHandler) handleStep3(w http.ResponseWriter, r *http.Request)
 	app, err := h.store.GetApplication(id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if isTerminalStatus(app.Status) {
+		writeError(w, http.StatusConflict, "application is in a terminal state and cannot be modified")
+		return
+	}
+	if app.CurrentStep < 3 {
+		writeError(w, http.StatusBadRequest, "step 2 must be completed before step 3")
 		return
 	}
 
@@ -329,6 +356,14 @@ func (h *applicationHandler) handleStep4(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
+	if isTerminalStatus(app.Status) {
+		writeError(w, http.StatusConflict, "application is in a terminal state and cannot be modified")
+		return
+	}
+	if app.CurrentStep < 4 {
+		writeError(w, http.StatusBadRequest, "step 3 must be completed before step 4")
+		return
+	}
 
 	// Create an AML screening record for this application.
 	screening := &AMLScreening{
@@ -363,6 +398,18 @@ func (h *applicationHandler) handleStep5(w http.ResponseWriter, r *http.Request)
 	app, err := h.store.GetApplication(id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if isTerminalStatus(app.Status) {
+		writeError(w, http.StatusConflict, "application is in a terminal state and cannot be modified")
+		return
+	}
+	if app.CurrentStep < 5 {
+		writeError(w, http.StatusBadRequest, "step 4 must be completed before step 5")
+		return
+	}
+	if app.KYCStatus == "" || app.KYCStatus == KYCPending {
+		writeError(w, http.StatusBadRequest, "identity verification must be attempted before submission")
 		return
 	}
 
@@ -403,9 +450,16 @@ func (h *applicationHandler) handleReview(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Extract reviewer identity from JWT context — never trust the request body.
+	// This prevents audit trail forgery (CRITICAL-3).
+	reviewer := admin.UserFromContext(r.Context())
+	if reviewer == "" {
+		writeError(w, http.StatusUnauthorized, "reviewer identity not found in token")
+		return
+	}
+
 	var req struct {
-		Decision   string `json:"decision"` // approved, rejected
-		ReviewedBy string `json:"reviewed_by"`
+		Decision string `json:"decision"` // approved, rejected
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -415,10 +469,6 @@ func (h *applicationHandler) handleReview(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "decision must be 'approved' or 'rejected'")
 		return
 	}
-	if req.ReviewedBy == "" {
-		writeError(w, http.StatusBadRequest, "reviewed_by is required")
-		return
-	}
 
 	switch req.Decision {
 	case "approved":
@@ -426,7 +476,7 @@ func (h *applicationHandler) handleReview(w http.ResponseWriter, r *http.Request
 	case "rejected":
 		app.Status = AppRejected
 	}
-	app.ReviewedBy = req.ReviewedBy
+	app.ReviewedBy = reviewer
 	app.ReviewedAt = time.Now().UTC()
 
 	if err := h.store.SaveApplication(app); err != nil {
