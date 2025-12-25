@@ -94,24 +94,31 @@ to avoid import cycles: `provider/alpaca` has compile-time interface assertions 
 import `provider`, so `provider` cannot import `provider/alpaca`.
 
 ### Compliance (pkg/compliance/)
-KYC/KYB, onboarding, fund management, eSign, RBAC, and reporting.
+Thin HTTP adapter layer over `github.com/luxfi/compliance` library.
+All domain types, store interface, MemoryStore, Jube client, RBAC, and onboarding
+logic live in the library. This package re-exports types as aliases and provides:
+- HTTP handlers (chi router with RBAC guards, rate limiting, CORS)
+- PostgresStore (pgx-backed, implements library's ComplianceStore interface)
+- Webhook dispatcher for cross-BD trade events (`pkg/compliance/webhooks/`)
+- Seed data for development mode
+
 Mounted at `/compliance` on the main server. Supports in-memory store (default) or
-PostgreSQL via `DATABASE_URL` env var. Includes Jube AML/fraud client (`pkg/compliance/jube/`)
-and webhook dispatcher (`pkg/compliance/webhooks/`).
+PostgreSQL via `DATABASE_URL` env var. Jube client imported from library.
 
 Key endpoint groups under `/compliance`:
-- `/kyc` -- Identity verification, document upload, status tracking (list by user, update status)
-- `/aml` -- AML screening (Jube integration), risk assessment, flagged review, sanctions checks
-- `/applications` -- 5-step onboarding flow (basic info, identity, documents, compliance, submit)
+- `/kyc` -- Identity verification, document upload, status tracking
+- `/aml` -- AML screening (Jube integration), risk assessment, flagged review
+- `/applications` -- 5-step onboarding flow (SSN hashed with HMAC-SHA256)
 - `/pipelines` + `/sessions` -- Configurable onboarding pipeline engine
 - `/funds` -- Fund management with investor tracking
 - `/esign` -- Envelope/template eSign workflow
 - `/roles` + `/modules` -- RBAC permission matrix
 
-New files (2026-03-27):
-- `aml.go` -- AML screening/review/risk-assessment handlers
-- `application.go` -- 5-step onboarding application handlers (SSN hashed with SHA-256)
-- `schemas/compliance_tables.sql` -- PostgreSQL migration for aml_screenings, applications, document_uploads
+Library dependency (go.mod):
+```
+require github.com/luxfi/compliance v0.1.0
+replace github.com/luxfi/compliance => ../compliance
+```
 
 ### Database (pkg/db/)
 PostgreSQL connection pool and auto-migrations. Used by compliance when `DATABASE_URL` is set.

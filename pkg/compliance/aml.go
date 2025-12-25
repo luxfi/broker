@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/luxfi/broker/pkg/admin"
-	"github.com/luxfi/broker/pkg/compliance/jube"
+	"github.com/luxfi/compliance/pkg/jube"
 	"github.com/rs/zerolog/log"
 )
 
