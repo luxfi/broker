@@ -635,6 +635,27 @@ func (s *PostgresStore) GetRole(id string) (*Role, error) {
 	return &role, nil
 }
 
+func (s *PostgresStore) GetRoleByName(name string) (*Role, error) {
+	ctx := context.Background()
+	var role Role
+	var permsJSON []byte
+
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, name, description, permissions, created_at, updated_at
+		FROM roles WHERE name = $1
+	`, name).Scan(&role.ID, &role.Name, &role.Description, &permsJSON, &role.CreatedAt, &role.UpdatedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("role not found: %s", name)
+		}
+		return nil, err
+	}
+	if len(permsJSON) > 0 {
+		json.Unmarshal(permsJSON, &role.Permissions)
+	}
+	return &role, nil
+}
+
 func (s *PostgresStore) ListRoles() []*Role {
 	ctx := context.Background()
 	rows, err := s.pool.Query(ctx, `

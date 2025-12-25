@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/luxfi/broker/pkg/admin"
 	"github.com/luxfi/broker/pkg/compliance/jube"
 	"github.com/rs/zerolog/log"
 )
@@ -118,10 +119,17 @@ func (h *amlHandler) handleReview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Extract reviewer identity from JWT context — never trust the request body.
+	// This prevents audit trail forgery (CRITICAL-2).
+	reviewer := admin.UserFromContext(r.Context())
+	if reviewer == "" {
+		writeError(w, http.StatusUnauthorized, "reviewer identity not found in token")
+		return
+	}
+
 	var req struct {
-		Decision   string `json:"decision"` // cleared, blocked
-		ReviewedBy string `json:"reviewed_by"`
-		Details    string `json:"details,omitempty"`
+		Decision string `json:"decision"` // cleared, blocked
+		Details  string `json:"details,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -131,10 +139,6 @@ func (h *amlHandler) handleReview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "decision must be 'cleared' or 'blocked'")
 		return
 	}
-	if req.ReviewedBy == "" {
-		writeError(w, http.StatusBadRequest, "reviewed_by is required")
-		return
-	}
 
 	switch req.Decision {
 	case "cleared":
@@ -142,7 +146,7 @@ func (h *amlHandler) handleReview(w http.ResponseWriter, r *http.Request) {
 	case "blocked":
 		existing.Status = AMLBlocked
 	}
-	existing.ReviewedBy = req.ReviewedBy
+	existing.ReviewedBy = reviewer
 	existing.ReviewedAt = time.Now().UTC()
 	if req.Details != "" {
 		existing.Details = req.Details

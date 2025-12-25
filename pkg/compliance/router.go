@@ -2,7 +2,9 @@ package compliance
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 
@@ -66,16 +68,25 @@ func NewRouter(store ComplianceStore, adminStore *admin.Store, authStore ...*aut
 	aml := &amlHandler{store: store}
 	apps := &applicationHandler{store: store}
 
-	// guard wraps a handler with RBAC.
+	// guard wraps a handler with RBAC using the stored role/permission system.
 	guard := func(module, action string, h http.HandlerFunc) http.HandlerFunc {
-		return requireRole(module, action, h)
+		return requireRole(store, module, action, h)
 	}
 
 	r := chi.NewRouter()
 
-	// CORS — allow the admin frontend at specific ports and production origins.
+	// CORS — explicit production origins only. No wildcards to prevent
+	// subdomain takeover attacks (MEDIUM-2).
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:3000", "http://localhost:3100", "https://*.lux.exchange.com", "https://*.lux.exchange"},
+		AllowedOrigins: []string{
+			"https://admin.lux.exchange.com",
+			"https://exchange.lux.exchange.com",
+			"https://app.lux.exchange.com",
+			"https://app.lux.exchange",
+			"https://admin.lux.exchange",
+			"http://localhost:3000",
+			"http://localhost:3100",
+		},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
 		AllowCredentials: true,
@@ -114,8 +125,8 @@ func NewRouter(store ComplianceStore, adminStore *admin.Store, authStore ...*aut
 		// KYC
 		r.Route("/kyc", func(r chi.Router) {
 			r.Post("/verify", rateLimitSensitive(guard("kyc", "write", kyc.handleVerify)))
-			r.Get("/", kyc.handleListByUser)
-			r.Get("/{id}", kyc.handleGet)
+			r.Get("/", guard("kyc", "read", kyc.handleListByUser))
+			r.Get("/{id}", guard("kyc", "read", kyc.handleGet))
 			r.Patch("/{id}", guard("kyc", "write", kyc.handleUpdateStatus))
 			r.Post("/{id}/documents", guard("kyc", "write", kyc.handleUploadDocument))
 		})
@@ -124,25 +135,25 @@ func NewRouter(store ComplianceStore, adminStore *admin.Store, authStore ...*aut
 		r.Route("/aml", func(r chi.Router) {
 			r.Post("/screen", rateLimitSensitive(guard("aml", "write", aml.handleScreen)))
 			r.Post("/risk-assessment", rateLimitSensitive(guard("aml", "write", aml.handleRiskAssessment)))
-			r.Get("/screenings", aml.handleListByAccount)
-			r.Get("/flagged", aml.handleListFlagged)
-			r.Get("/screenings/{id}", aml.handleGet)
+			r.Get("/screenings", guard("aml", "read", aml.handleListByAccount))
+			r.Get("/flagged", guard("aml", "read", aml.handleListFlagged))
+			r.Get("/screenings/{id}", guard("aml", "read", aml.handleGet))
 			r.Post("/screenings/{id}/review", guard("aml", "write", aml.handleReview))
 		})
 
 		// Onboarding Applications
 		r.Route("/applications", func(r chi.Router) {
-			r.Get("/", apps.handleList)
+			r.Get("/", guard("applications", "read", apps.handleList))
 			r.Post("/", guard("applications", "write", apps.handleCreate))
-			r.Get("/lookup", apps.handleGetByUser)
-			r.Get("/{id}", apps.handleGet)
+			r.Get("/lookup", guard("applications", "read", apps.handleGetByUser))
+			r.Get("/{id}", guard("applications", "read", apps.handleGet))
 			r.Post("/{id}/step/1", guard("applications", "write", apps.handleStep1))
 			r.Post("/{id}/step/2", guard("applications", "write", apps.handleStep2))
 			r.Post("/{id}/step/3", guard("applications", "write", apps.handleStep3))
 			r.Post("/{id}/step/4", guard("applications", "write", apps.handleStep4))
 			r.Post("/{id}/step/5", guard("applications", "write", apps.handleStep5))
 			r.Post("/{id}/review", guard("applications", "write", apps.handleReview))
-			r.Get("/{id}/documents", apps.handleGetDocuments)
+			r.Get("/{id}/documents", guard("applications", "read", apps.handleGetDocuments))
 		})
 
 		// Pipelines
@@ -236,28 +247,43 @@ func NewRouter(store ComplianceStore, adminStore *admin.Store, authStore ...*aut
 }
 
 // requireRole returns an http.HandlerFunc that checks if the authenticated admin
-// has the super_admin role (which has implicit permission for everything) or at least
-// the specified module+action. In a full RBAC system this would look up roles from
-// the compliance store; for now super_admin gets all access and other roles get rejected
-// on write operations. This is sufficient to enforce least-privilege.
-func requireRole(module, action string, next http.HandlerFunc) http.HandlerFunc {
+// has the required module+action permission by looking up their role in the compliance
+// store's roles table. The special "super_admin" role retains implicit full access
+// for bootstrap/recovery scenarios. All other roles are checked against stored
+// permissions (HIGH-1).
+func requireRole(store ComplianceStore, module, action string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		role := admin.RoleFromContext(r.Context())
-		// super_admin can do anything
-		if role == "super_admin" {
+		roleName := admin.RoleFromContext(r.Context())
+		if roleName == "" {
+			writeError(w, http.StatusForbidden, "no role in token")
+			return
+		}
+
+		// super_admin is an escape hatch for bootstrap/recovery.
+		if roleName == "super_admin" {
 			next(w, r)
 			return
 		}
-		// admin can read and write, but not delete
-		if role == "admin" && action != "delete" {
-			next(w, r)
+
+		// Look up the role's permissions from the store.
+		role, err := store.GetRoleByName(roleName)
+		if err != nil {
+			writeError(w, http.StatusForbidden, "unknown role: "+roleName)
 			return
 		}
-		// reviewer can only read — not write or delete
-		if role == "reviewer" && action == "read" {
-			next(w, r)
-			return
+
+		for _, perm := range role.Permissions {
+			if perm.Module == module && perm.Action == action {
+				next(w, r)
+				return
+			}
+			// "admin" action on a module implies all other actions.
+			if perm.Module == module && perm.Action == "admin" {
+				next(w, r)
+				return
+			}
 		}
+
 		writeError(w, http.StatusForbidden, "insufficient permissions for "+module+":"+action)
 	}
 }
@@ -274,6 +300,51 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
+// extractIP returns the client IP from r.RemoteAddr with the port stripped.
+// We use RemoteAddr instead of X-Forwarded-For because X-Forwarded-For is
+// trivially spoofable. In production behind a trusted proxy (e.g., hanzoai/ingress),
+// the proxy sets RemoteAddr to the real client IP.
+func extractIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// rateLimitMaxEntries is the maximum number of distinct IPs tracked in a
+// single rate limiter map. If exceeded, the oldest half is evicted to prevent
+// memory exhaustion under attack.
+const rateLimitMaxEntries = 10000
+
+// evictOldest removes the oldest half of entries from the map when it exceeds
+// rateLimitMaxEntries. This prevents memory exhaustion from distributed attacks.
+func evictOldest(attempts map[string][]time.Time) {
+	if len(attempts) <= rateLimitMaxEntries {
+		return
+	}
+	type entry struct {
+		ip     string
+		oldest time.Time
+	}
+	entries := make([]entry, 0, len(attempts))
+	for ip, ts := range attempts {
+		if len(ts) > 0 {
+			entries = append(entries, entry{ip, ts[0]})
+		} else {
+			entries = append(entries, entry{ip, time.Time{}})
+		}
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].oldest.Before(entries[j].oldest)
+	})
+	// Remove oldest half.
+	removeCount := len(entries) / 2
+	for i := 0; i < removeCount; i++ {
+		delete(attempts, entries[i].ip)
+	}
+}
+
 // rateLimitLogin wraps a login handler with per-IP rate limiting.
 // Allows 5 attempts per minute per IP, then returns 429.
 func rateLimitLogin(next http.HandlerFunc) http.HandlerFunc {
@@ -281,23 +352,25 @@ func rateLimitLogin(next http.HandlerFunc) http.HandlerFunc {
 	attempts := make(map[string][]time.Time)
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		ip := r.RemoteAddr
-		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-			ip = fwd
-		}
+		ip := extractIP(r)
 
 		mu.Lock()
 		now := time.Now()
 		window := now.Add(-1 * time.Minute)
 
-		// Prune old entries
+		// Prune old entries for this IP.
 		valid := attempts[ip][:0]
 		for _, t := range attempts[ip] {
 			if t.After(window) {
 				valid = append(valid, t)
 			}
 		}
-		attempts[ip] = valid
+		// Evict empty entries to prevent memory leak.
+		if len(valid) == 0 {
+			delete(attempts, ip)
+		} else {
+			attempts[ip] = valid
+		}
 
 		if len(attempts[ip]) >= 5 {
 			mu.Unlock()
@@ -305,6 +378,7 @@ func rateLimitLogin(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		attempts[ip] = append(attempts[ip], now)
+		evictOldest(attempts)
 		mu.Unlock()
 
 		next(w, r)
@@ -319,10 +393,7 @@ func rateLimitSensitive(next http.HandlerFunc) http.HandlerFunc {
 	attempts := make(map[string][]time.Time)
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		ip := r.RemoteAddr
-		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-			ip = fwd
-		}
+		ip := extractIP(r)
 
 		mu.Lock()
 		now := time.Now()
@@ -334,7 +405,12 @@ func rateLimitSensitive(next http.HandlerFunc) http.HandlerFunc {
 				valid = append(valid, t)
 			}
 		}
-		attempts[ip] = valid
+		// Evict empty entries to prevent memory leak.
+		if len(valid) == 0 {
+			delete(attempts, ip)
+		} else {
+			attempts[ip] = valid
+		}
 
 		if len(attempts[ip]) >= 10 {
 			mu.Unlock()
@@ -342,6 +418,7 @@ func rateLimitSensitive(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		attempts[ip] = append(attempts[ip], now)
+		evictOldest(attempts)
 		mu.Unlock()
 
 		next(w, r)
