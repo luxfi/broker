@@ -66,7 +66,8 @@ func (p *Provider) do(ctx context.Context, method, path string, body interface{}
 		reqBody = bytes.NewReader(b)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, p.cfg.BaseURL+path, reqBody)
+	fullURL := p.cfg.BaseURL + path
+	req, err := http.NewRequestWithContext(ctx, method, fullURL, reqBody)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -85,6 +86,7 @@ func (p *Provider) do(ctx context.Context, method, path string, body interface{}
 	}
 
 	if resp.StatusCode >= 400 {
+		fmt.Printf("[alpaca] %s %s → %d body=%s\n", method, fullURL, resp.StatusCode, string(data)[:min(len(data), 200)])
 		var apiErr struct {
 			Code    int    `json:"code"`
 			Message string `json:"message"`
