@@ -400,7 +400,16 @@ func (r *Router) SmartOrder(ctx context.Context, accountsByProvider map[string]s
 
 	accountID, ok := accountsByProvider[best.Provider]
 	if !ok {
-		return nil, fmt.Errorf("no account configured for provider %s", best.Provider)
+		// Auto-resolve: use first available account for this provider
+		p, err := r.registry.Get(best.Provider)
+		if err != nil {
+			return nil, err
+		}
+		accts, err := p.ListAccounts(ctx)
+		if err != nil || len(accts) == 0 {
+			return nil, fmt.Errorf("no account configured for provider %s", best.Provider)
+		}
+		accountID = accts[0].ID
 	}
 
 	p, err := r.registry.Get(best.Provider)
