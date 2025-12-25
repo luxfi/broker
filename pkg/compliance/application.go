@@ -11,15 +11,22 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/luxfi/broker/pkg/admin"
+	"github.com/luxfi/compliance/pkg/onboarding"
 	"github.com/rs/zerolog/log"
 )
 
 // ssnHMACKey is the key used for HMAC-SHA256 hashing of SSNs.
 // Must be set via SSN_HMAC_KEY environment variable (sourced from KMS).
-// Falls back to a deterministic salt if unset (not suitable for production).
+// In production (BROKER_ENV=production), the process will refuse to start
+// without this key to prevent silent fallback to a weak default.
 var ssnHMACKey = func() []byte {
 	if key := os.Getenv("SSN_HMAC_KEY"); key != "" {
 		return []byte(key)
+	}
+	if os.Getenv("BROKER_ENV") == "production" {
+		// Hard-fail in production. SSN hashing without a proper KMS key
+		// is a compliance violation.
+		panic("FATAL: SSN_HMAC_KEY must be set in production (source from KMS)")
 	}
 	return []byte("CHANGE-ME-USE-KMS-IN-PRODUCTION")
 }()
@@ -29,15 +36,9 @@ type applicationHandler struct {
 	store ComplianceStore
 }
 
-// newApplicationSteps returns the 5 default onboarding steps.
+// newApplicationSteps delegates to the compliance library's canonical step definitions.
 func newApplicationSteps() []ApplicationStep {
-	return []ApplicationStep{
-		{Step: 1, Name: "Basic Info & Contact", Status: "pending"},
-		{Step: 2, Name: "Identity Verification", Status: "pending"},
-		{Step: 3, Name: "Document Upload", Status: "pending"},
-		{Step: 4, Name: "Compliance Screening", Status: "pending"},
-		{Step: 5, Name: "Review & Submit", Status: "pending"},
-	}
+	return onboarding.NewApplicationSteps()
 }
 
 // handleCreate starts a new onboarding application.
@@ -113,10 +114,9 @@ func (h *applicationHandler) handleList(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, h.store.ListApplications())
 }
 
-// isTerminalStatus returns true if the application is in a final state
-// where no further step modifications are allowed.
+// isTerminalStatus delegates to the compliance library's canonical definition.
 func isTerminalStatus(status ApplicationStatus) bool {
-	return status == AppApproved || status == AppRejected || status == AppSubmitted
+	return onboarding.IsTerminalStatus(status)
 }
 
 // handleStep1 updates Step 1: Basic Info + Contact.
@@ -497,23 +497,12 @@ func (h *applicationHandler) handleGetDocuments(w http.ResponseWriter, r *http.R
 	writeJSON(w, http.StatusOK, h.store.ListDocumentUploads(id))
 }
 
-// markStepCompleted sets a step to completed.
+// markStepCompleted delegates to the compliance library's canonical implementation.
 func markStepCompleted(app *Application, step int) {
-	for i := range app.Steps {
-		if app.Steps[i].Step == step {
-			app.Steps[i].Status = "completed"
-			app.Steps[i].CompletedAt = time.Now().UTC()
-			return
-		}
-	}
+	onboarding.MarkStepCompleted(app, step)
 }
 
-// markStepFailed sets a step to failed.
+// markStepFailed delegates to the compliance library's canonical implementation.
 func markStepFailed(app *Application, step int) {
-	for i := range app.Steps {
-		if app.Steps[i].Step == step {
-			app.Steps[i].Status = "failed"
-			return
-		}
-	}
+	onboarding.MarkStepFailed(app, step)
 }
