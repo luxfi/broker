@@ -86,7 +86,6 @@ func (p *Provider) do(ctx context.Context, method, path string, body interface{}
 	}
 
 	if resp.StatusCode >= 400 {
-		fmt.Printf("[alpaca] %s %s → %d body=%s\n", method, fullURL, resp.StatusCode, string(data)[:min(len(data), 200)])
 		var apiErr struct {
 			Code    int    `json:"code"`
 			Message string `json:"message"`
@@ -150,6 +149,7 @@ type alpacaAccount struct {
 
 func (a *alpacaAccount) toUnified() *types.Account {
 	acct := &types.Account{
+		ID:            a.ID,
 		Provider:      "alpaca",
 		ProviderID:    a.ID,
 		AccountNumber: a.AccountNumber,
