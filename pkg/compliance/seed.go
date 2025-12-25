@@ -1,6 +1,10 @@
 package compliance
 
-import "time"
+import (
+	"time"
+
+	"github.com/luxfi/compliance/pkg/rbac"
+)
 
 // SeedStore populates the store with demo data for development.
 // Call this only when BROKER_ENV != "production".
@@ -14,72 +18,12 @@ func SeedStore(s ComplianceStore) {
 	seedEnvelopes(s)
 }
 
+// seedRoles uses the canonical role definitions from the compliance library
+// to prevent drift between seed data and the library's RBAC defaults.
 func seedRoles(s ComplianceStore) {
-	allModules := []string{"kyc", "funds", "esign", "pipelines", "sessions", "roles", "dashboard", "transactions"}
-	allActions := []string{"read", "write", "delete", "admin"}
-
-	// Owner — full access to everything.
-	ownerPerms := make([]Permission, 0, len(allModules)*len(allActions))
-	for _, m := range allModules {
-		for _, a := range allActions {
-			ownerPerms = append(ownerPerms, Permission{Module: m, Action: a})
-		}
+	for _, role := range rbac.DefaultRoles() {
+		s.SaveRole(role)
 	}
-	s.SaveRole(&Role{Name: "Owner", Description: "Full access to all modules", Permissions: ownerPerms})
-
-	// Admin — full access except role management deletion.
-	adminPerms := make([]Permission, 0)
-	for _, m := range allModules {
-		for _, a := range allActions {
-			if m == "roles" && a == "delete" {
-				continue
-			}
-			adminPerms = append(adminPerms, Permission{Module: m, Action: a})
-		}
-	}
-	s.SaveRole(&Role{Name: "Admin", Description: "Administrative access, cannot delete roles", Permissions: adminPerms})
-
-	// Manager — read/write on operational modules.
-	s.SaveRole(&Role{
-		Name:        "Manager",
-		Description: "Operational management of onboarding and funds",
-		Permissions: []Permission{
-			{Module: "kyc", Action: "read"}, {Module: "kyc", Action: "write"},
-			{Module: "funds", Action: "read"}, {Module: "funds", Action: "write"},
-			{Module: "esign", Action: "read"}, {Module: "esign", Action: "write"},
-			{Module: "pipelines", Action: "read"}, {Module: "pipelines", Action: "write"},
-			{Module: "sessions", Action: "read"}, {Module: "sessions", Action: "write"},
-			{Module: "dashboard", Action: "read"},
-			{Module: "transactions", Action: "read"},
-		},
-	})
-
-	// Developer — read-only plus settings.
-	s.SaveRole(&Role{
-		Name:        "Developer",
-		Description: "Read access for integrations and debugging",
-		Permissions: []Permission{
-			{Module: "kyc", Action: "read"},
-			{Module: "funds", Action: "read"},
-			{Module: "esign", Action: "read"},
-			{Module: "pipelines", Action: "read"},
-			{Module: "sessions", Action: "read"},
-			{Module: "dashboard", Action: "read"},
-			{Module: "transactions", Action: "read"},
-		},
-	})
-
-	// Agent — limited to onboarding sessions.
-	s.SaveRole(&Role{
-		Name:        "Agent",
-		Description: "Investor-facing agent for onboarding sessions",
-		Permissions: []Permission{
-			{Module: "sessions", Action: "read"}, {Module: "sessions", Action: "write"},
-			{Module: "kyc", Action: "read"},
-			{Module: "esign", Action: "read"},
-			{Module: "dashboard", Action: "read"},
-		},
-	})
 }
 
 func seedPipelines(s ComplianceStore) {
