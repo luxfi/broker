@@ -2164,11 +2164,10 @@ func TestAMLReview(t *testing.T) {
 	sc := &AMLScreening{AccountID: "a1", Status: AMLFlagged, Provider: "jube"}
 	store.SaveAMLScreening(sc)
 
-	// Review and clear.
+	// Review and clear. reviewed_by comes from JWT context (testadmin), not request body.
 	w := doRequest(r, "POST", "/aml/screenings/"+sc.ID+"/review", map[string]string{
-		"decision":    "cleared",
-		"reviewed_by": "admin@example.com",
-		"details":     "false positive",
+		"decision": "cleared",
+		"details":  "false positive",
 	})
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -2178,8 +2177,9 @@ func TestAMLReview(t *testing.T) {
 	if reviewed.Status != AMLCleared {
 		t.Fatalf("expected cleared, got %s", reviewed.Status)
 	}
-	if reviewed.ReviewedBy != "admin@example.com" {
-		t.Fatalf("expected reviewed_by admin@example.com, got %s", reviewed.ReviewedBy)
+	// Reviewer identity is extracted from JWT, not request body.
+	if reviewed.ReviewedBy != "testadmin" {
+		t.Fatalf("expected reviewed_by testadmin (from JWT), got %s", reviewed.ReviewedBy)
 	}
 }
 
@@ -2198,17 +2198,28 @@ func TestAMLReviewBadDecision(t *testing.T) {
 	}
 }
 
-func TestAMLReviewMissingReviewer(t *testing.T) {
+func TestAMLReviewIgnoresBodyReviewedBy(t *testing.T) {
 	r, store := newTestRouter()
 
 	sc := &AMLScreening{AccountID: "a1", Status: AMLFlagged, Provider: "jube"}
 	store.SaveAMLScreening(sc)
 
+	// Send reviewed_by in body attempting to spoof identity.
+	// It must be ignored — reviewer comes from JWT context.
 	w := doRequest(r, "POST", "/aml/screenings/"+sc.ID+"/review", map[string]string{
-		"decision": "cleared",
+		"decision":    "cleared",
+		"reviewed_by": "spoofed-admin@evil.com",
 	})
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var reviewed AMLScreening
+	decodeJSON(t, w, &reviewed)
+	if reviewed.ReviewedBy == "spoofed-admin@evil.com" {
+		t.Fatal("SECURITY: reviewed_by accepted from request body instead of JWT context")
+	}
+	if reviewed.ReviewedBy != "testadmin" {
+		t.Fatalf("expected reviewed_by testadmin (from JWT), got %s", reviewed.ReviewedBy)
 	}
 }
 
@@ -2517,7 +2528,7 @@ func TestApplicationStep1MissingName(t *testing.T) {
 func TestApplicationStep2MissingProvider(t *testing.T) {
 	r, store := newTestRouter()
 
-	app := &Application{UserID: "u1", Email: "a@a.com", Status: AppDraft, Steps: newApplicationSteps()}
+	app := &Application{UserID: "u1", Email: "a@a.com", Status: AppInProgress, CurrentStep: 2, Steps: newApplicationSteps()}
 	store.SaveApplication(app)
 
 	w := doRequest(r, "POST", "/applications/"+app.ID+"/step/2", map[string]string{})
@@ -2529,7 +2540,7 @@ func TestApplicationStep2MissingProvider(t *testing.T) {
 func TestApplicationStep3NoDocuments(t *testing.T) {
 	r, store := newTestRouter()
 
-	app := &Application{UserID: "u1", Email: "a@a.com", Status: AppDraft, Steps: newApplicationSteps()}
+	app := &Application{UserID: "u1", Email: "a@a.com", Status: AppInProgress, CurrentStep: 3, Steps: newApplicationSteps()}
 	store.SaveApplication(app)
 
 	w := doRequest(r, "POST", "/applications/"+app.ID+"/step/3", map[string]interface{}{
@@ -2543,7 +2554,7 @@ func TestApplicationStep3NoDocuments(t *testing.T) {
 func TestApplicationStep5NotConfirmed(t *testing.T) {
 	r, store := newTestRouter()
 
-	app := &Application{UserID: "u1", Email: "a@a.com", Status: AppDraft, Steps: newApplicationSteps()}
+	app := &Application{UserID: "u1", Email: "a@a.com", Status: AppInProgress, CurrentStep: 5, KYCStatus: KYCVerified, Steps: newApplicationSteps()}
 	store.SaveApplication(app)
 
 	w := doRequest(r, "POST", "/applications/"+app.ID+"/step/5", map[string]bool{
@@ -2799,5 +2810,289 @@ func TestStoreIdentitiesByUserEmpty(t *testing.T) {
 	results := s.ListIdentitiesByUser("nonexistent")
 	if len(results) != 0 {
 		t.Fatalf("expected 0 results, got %d", len(results))
+	}
+}
+
+func TestStoreGetRoleByName(t *testing.T) {
+	s := NewStore()
+	SeedStore(s)
+
+	role, err := s.GetRoleByName("Owner")
+	if err != nil {
+		t.Fatalf("expected Owner role, got error: %v", err)
+	}
+	if role.Name != "Owner" {
+		t.Fatalf("expected name Owner, got %s", role.Name)
+	}
+	if len(role.Permissions) == 0 {
+		t.Fatal("expected Owner to have permissions")
+	}
+}
+
+func TestStoreGetRoleByNameNotFound(t *testing.T) {
+	s := NewStore()
+	_, err := s.GetRoleByName("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent role name")
+	}
+}
+
+// ==========================================================================
+// Security Tests — Red Team Findings
+// ==========================================================================
+
+// CRITICAL-2: AML reviewer identity must come from JWT, not request body.
+func TestSecurityAMLReviewerSpoofingPrevented(t *testing.T) {
+	r, store := newTestRouter()
+
+	sc := &AMLScreening{AccountID: "a1", Status: AMLFlagged, Provider: "jube"}
+	store.SaveAMLScreening(sc)
+
+	// Attacker tries to claim review was by "bob" but JWT says "testadmin".
+	w := doRequest(r, "POST", "/aml/screenings/"+sc.ID+"/review", map[string]string{
+		"decision":    "blocked",
+		"reviewed_by": "bob@spoofed.com",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var reviewed AMLScreening
+	decodeJSON(t, w, &reviewed)
+	if reviewed.ReviewedBy == "bob@spoofed.com" {
+		t.Fatal("SECURITY: reviewer identity accepted from request body (spoofable)")
+	}
+	if reviewed.ReviewedBy != "testadmin" {
+		t.Fatalf("expected reviewer testadmin from JWT, got %s", reviewed.ReviewedBy)
+	}
+}
+
+// CRITICAL-3: Application reviewer identity must come from JWT, not request body.
+func TestSecurityApplicationReviewerSpoofingPrevented(t *testing.T) {
+	r, store := newTestRouter()
+
+	app := &Application{UserID: "u1", Email: "a@a.com", Status: AppSubmitted, Steps: newApplicationSteps()}
+	store.SaveApplication(app)
+
+	// Attacker sends reviewed_by in body — must be ignored.
+	w := doRequest(r, "POST", "/applications/"+app.ID+"/review", map[string]string{
+		"decision":    "approved",
+		"reviewed_by": "spoofed-admin@evil.com",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var reviewed Application
+	decodeJSON(t, w, &reviewed)
+	if reviewed.ReviewedBy == "spoofed-admin@evil.com" {
+		t.Fatal("SECURITY: reviewer identity accepted from request body (spoofable)")
+	}
+	if reviewed.ReviewedBy != "testadmin" {
+		t.Fatalf("expected reviewer testadmin from JWT, got %s", reviewed.ReviewedBy)
+	}
+}
+
+// HIGH-2: Application steps cannot be skipped.
+func TestSecurityApplicationStepSkipPrevented(t *testing.T) {
+	r, store := newTestRouter()
+
+	app := &Application{
+		UserID:      "u1",
+		Email:       "a@a.com",
+		Status:      AppDraft,
+		CurrentStep: 1,
+		Steps:       newApplicationSteps(),
+	}
+	store.SaveApplication(app)
+
+	// Try to jump directly to step 5 — should be rejected.
+	w := doRequest(r, "POST", "/applications/"+app.ID+"/step/5", map[string]bool{
+		"confirmed": true,
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("SECURITY: step 5 accepted without completing prior steps, got %d", w.Code)
+	}
+
+	// Try to jump to step 3 — should be rejected.
+	w = doRequest(r, "POST", "/applications/"+app.ID+"/step/3", map[string]interface{}{
+		"documents": []map[string]interface{}{
+			{"type": "passport", "name": "p.pdf", "mime_type": "application/pdf", "size": 100},
+		},
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("SECURITY: step 3 accepted without completing step 2, got %d", w.Code)
+	}
+
+	// Try to jump to step 2 — should be rejected (step 1 not done).
+	w = doRequest(r, "POST", "/applications/"+app.ID+"/step/2", map[string]string{
+		"provider": "onfido",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("SECURITY: step 2 accepted without completing step 1, got %d", w.Code)
+	}
+
+	// Step 1 should work (no precondition).
+	w = doRequest(r, "POST", "/applications/"+app.ID+"/step/1", map[string]string{
+		"first_name": "Test",
+		"last_name":  "User",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for step 1, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// HIGH-2 / MEDIUM-5: Application steps rejected after terminal status.
+func TestSecurityApplicationTerminalStatusBlocksSteps(t *testing.T) {
+	r, store := newTestRouter()
+
+	app := &Application{
+		UserID:      "u1",
+		Email:       "a@a.com",
+		Status:      AppApproved,
+		CurrentStep: 5,
+		Steps:       newApplicationSteps(),
+	}
+	store.SaveApplication(app)
+
+	// Try to modify step 1 on an approved application — should be rejected.
+	w := doRequest(r, "POST", "/applications/"+app.ID+"/step/1", map[string]string{
+		"first_name": "Hacker",
+		"last_name":  "Evil",
+	})
+	if w.Code != http.StatusConflict {
+		t.Fatalf("SECURITY: step modification allowed on approved application, got %d", w.Code)
+	}
+
+	// Try on a rejected application.
+	app2 := &Application{
+		UserID:      "u2",
+		Email:       "b@b.com",
+		Status:      AppRejected,
+		CurrentStep: 5,
+		Steps:       newApplicationSteps(),
+	}
+	store.SaveApplication(app2)
+
+	w = doRequest(r, "POST", "/applications/"+app2.ID+"/step/1", map[string]string{
+		"first_name": "Hacker",
+		"last_name":  "Evil",
+	})
+	if w.Code != http.StatusConflict {
+		t.Fatalf("SECURITY: step modification allowed on rejected application, got %d", w.Code)
+	}
+
+	// Try on a submitted application.
+	app3 := &Application{
+		UserID:      "u3",
+		Email:       "c@c.com",
+		Status:      AppSubmitted,
+		CurrentStep: 5,
+		Steps:       newApplicationSteps(),
+	}
+	store.SaveApplication(app3)
+
+	w = doRequest(r, "POST", "/applications/"+app3.ID+"/step/1", map[string]string{
+		"first_name": "Hacker",
+		"last_name":  "Evil",
+	})
+	if w.Code != http.StatusConflict {
+		t.Fatalf("SECURITY: step modification allowed on submitted application, got %d", w.Code)
+	}
+}
+
+// HIGH-1: RBAC uses stored permissions, not hardcoded roles.
+func TestSecurityRBACUsesStoredPermissions(t *testing.T) {
+	store := NewStore()
+	SeedStore(store)
+	adminStore := admin.NewStore("test-secret-for-tests")
+
+	// Create admins with roles matching the seeded compliance roles.
+	adminStore.AddAdmin("testadmin", "testpass", "super_admin")
+	adminStore.AddAdmin("dev-user", "devpass", "Developer")
+	adminStore.AddAdmin("agent-user", "agentpass", "Agent")
+
+	router := NewRouter(store, adminStore)
+
+	// Helper to make requests with a specific admin token.
+	makeRequest := func(username, password, method, path string, body interface{}) *httptest.ResponseRecorder {
+		tok, err := adminStore.Authenticate(username, password)
+		if err != nil {
+			t.Fatalf("auth %s: %v", username, err)
+		}
+		var buf bytes.Buffer
+		if body != nil {
+			json.NewEncoder(&buf).Encode(body)
+		}
+		req := httptest.NewRequest(method, path, &buf)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+tok)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w
+	}
+
+	// Developer should have read access to KYC.
+	w := makeRequest("dev-user", "devpass", "GET", "/kyc/?user_id=test", nil)
+	if w.Code == http.StatusForbidden {
+		t.Fatal("Developer should have kyc:read permission")
+	}
+
+	// Developer should NOT have write access to KYC.
+	w = makeRequest("dev-user", "devpass", "POST", "/kyc/verify", map[string]string{
+		"user_id": "u1", "provider": "test",
+	})
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("SECURITY: Developer should NOT have kyc:write, got %d", w.Code)
+	}
+
+	// Agent should have sessions:write.
+	w = makeRequest("agent-user", "agentpass", "POST", "/sessions/", map[string]string{
+		"pipeline_id": "test", "investor_email": "a@b.com",
+	})
+	// Should not be 403 (it may be 400 for missing pipeline, that's fine).
+	if w.Code == http.StatusForbidden {
+		t.Fatal("Agent should have sessions:write permission")
+	}
+
+	// Agent should NOT have funds:write.
+	w = makeRequest("agent-user", "agentpass", "POST", "/funds/", map[string]interface{}{
+		"name": "Hack Fund", "type": "equity",
+	})
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("SECURITY: Agent should NOT have funds:write, got %d", w.Code)
+	}
+}
+
+// HIGH-3: Rate limiter uses RemoteAddr, not X-Forwarded-For.
+func TestSecurityRateLimiterIgnoresXForwardedFor(t *testing.T) {
+	store := NewStore()
+	adminStore := admin.NewStore("test-secret-for-tests")
+	adminStore.AddAdmin("testadmin", "testpass", "super_admin")
+	router := NewRouter(store, adminStore)
+
+	// Exhaust rate limit with 5 login attempts.
+	for i := 0; i < 5; i++ {
+		req := httptest.NewRequest("POST", "/auth/login", bytes.NewBufferString(`{"username":"bad","password":"bad"}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+	}
+
+	// 6th attempt should be rate limited.
+	req := httptest.NewRequest("POST", "/auth/login", bytes.NewBufferString(`{"username":"bad","password":"bad"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 after 5 attempts, got %d", w.Code)
+	}
+
+	// Attacker tries to bypass by setting X-Forwarded-For — must still be blocked.
+	req = httptest.NewRequest("POST", "/auth/login", bytes.NewBufferString(`{"username":"bad","password":"bad"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Forwarded-For", "1.2.3.4")
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("SECURITY: rate limit bypassed via X-Forwarded-For, got %d", w.Code)
 	}
 }
