@@ -90,15 +90,6 @@ func Middleware(store *Store) func(http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
-			// Also accept X-User-Id from ATS proxy
-			if userId := r.Header.Get("X-User-Id"); userId != "" {
-				orgId := r.Header.Get("X-Org-Id")
-				r.Header.Set("X-Org-ID", orgId)
-				r.Header.Set("X-API-Key-Name", "ats-proxy:"+userId)
-				next.ServeHTTP(w, r)
-				return
-			}
-
 			// API key auth: for service-to-service and admin access
 			key := extractAPIKey(r)
 			if key == "" {
@@ -129,7 +120,7 @@ func RequirePermission(store *Store, perm string) func(http.Handler) http.Handle
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// IAM auth — Gateway-validated user has all permissions
-			if r.Header.Get("X-User-Id") != "" || r.Header.Get("X-User-Id") != "" {
+			if r.Header.Get("X-User-Id") != "" || r.Header.Get("X-IAM-User-Id") != "" {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -137,7 +128,7 @@ func RequirePermission(store *Store, perm string) func(http.Handler) http.Handle
 			if key == "" {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
-				w.Write([]byte(`{"error":"API key required"}`))
+				w.Write([]byte(`{"error":"authentication required"}`))
 				return
 			}
 			ak, valid := store.Validate(key)
