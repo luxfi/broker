@@ -87,7 +87,7 @@ func NewServer(registry *provider.Registry, listenAddr string) *Server {
 	r.Use(chimw.Recoverer)
 	r.Use(chimw.Timeout(60 * time.Second))
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"https://example.com", "https://app.example.com", "https://mpc.lux.network", "http://localhost:3000", "http://localhost:3001"},
+		AllowedOrigins:   []string{"https://*.lux.exchange.com", "https://*.lux.exchange", "https://mpc.lux.network", "http://localhost:3000", "http://localhost:3001"},
 		AllowedMethods:   []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-API-Key"},
 		AllowCredentials: true,
