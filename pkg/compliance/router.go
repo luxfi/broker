@@ -13,6 +13,7 @@ import (
 	"github.com/luxfi/broker/pkg/admin"
 	"github.com/luxfi/broker/pkg/auth"
 	"github.com/luxfi/compliance/pkg/jube"
+	"github.com/rs/zerolog/log"
 )
 
 // RouterOption configures optional dependencies for the compliance router.
@@ -38,9 +39,8 @@ func WithJubeClient(c *jube.Client) RouterOption {
 // The adminStore parameter provides authentication and RBAC. When non-nil,
 // all routes (except /healthz) require a valid admin JWT and write operations
 // are gated by role-based permissions.
-// The authStore parameter provides API key management for credential endpoints.
-// Optional RouterOption values can add the auth store and Jube client.
-func NewRouter(store ComplianceStore, adminStore *admin.Store, authStore ...*auth.Store) chi.Router {
+// Optional RouterOption values add the auth store and Jube client.
+func NewRouter(store ComplianceStore, adminStore *admin.Store, opts ...RouterOption) chi.Router {
 	if store == nil {
 		store = NewMemoryStore()
 	}
@@ -48,9 +48,9 @@ func NewRouter(store ComplianceStore, adminStore *admin.Store, authStore ...*aut
 		panic("compliance router requires non-nil adminStore")
 	}
 
-	var as *auth.Store
-	if len(authStore) > 0 {
-		as = authStore[0]
+	var cfg routerConfig
+	for _, opt := range opts {
+		opt(&cfg)
 	}
 
 	kyc := &kycHandler{store: store}
@@ -63,9 +63,9 @@ func NewRouter(store ComplianceStore, adminStore *admin.Store, authStore ...*aut
 	txns := &transactionsHandler{store: store}
 	reports := &reportsHandler{}
 	settings := &settingsHandler{store: store}
-	creds := &credentialsHandler{store: store, authStore: as}
+	creds := &credentialsHandler{store: store, authStore: cfg.authStore}
 	billing := &billingHandler{}
-	aml := &amlHandler{store: store}
+	aml := &amlHandler{store: store, jubeClient: cfg.jubeClient}
 	apps := &applicationHandler{store: store}
 
 	// guard wraps a handler with RBAC using the stored role/permission system.
@@ -158,39 +158,39 @@ func NewRouter(store ComplianceStore, adminStore *admin.Store, authStore ...*aut
 
 		// Pipelines
 		r.Route("/pipelines", func(r chi.Router) {
-			r.Get("/", onboard.handleListPipelines)
+			r.Get("/", guard("pipelines", "read", onboard.handleListPipelines))
 			r.Post("/", guard("pipelines", "write", onboard.handleCreatePipeline))
-			r.Get("/{id}", onboard.handleGetPipeline)
+			r.Get("/{id}", guard("pipelines", "read", onboard.handleGetPipeline))
 			r.Patch("/{id}", guard("pipelines", "write", onboard.handleUpdatePipeline))
 			r.Delete("/{id}", guard("pipelines", "delete", onboard.handleDeletePipeline))
 		})
 
 		// Sessions
 		r.Route("/sessions", func(r chi.Router) {
-			r.Get("/", onboard.handleListSessions)
+			r.Get("/", guard("sessions", "read", onboard.handleListSessions))
 			r.Post("/", guard("sessions", "write", onboard.handleCreateSession))
-			r.Get("/{id}", onboard.handleGetSession)
+			r.Get("/{id}", guard("sessions", "read", onboard.handleGetSession))
 			r.Patch("/{id}", guard("sessions", "write", onboard.handleUpdateSession))
-			r.Get("/{id}/steps", onboard.handleGetSessionSteps)
+			r.Get("/{id}/steps", guard("sessions", "read", onboard.handleGetSessionSteps))
 		})
 
 		// Funds
 		r.Route("/funds", func(r chi.Router) {
-			r.Get("/", funds.handleListFunds)
+			r.Get("/", guard("funds", "read", funds.handleListFunds))
 			r.Post("/", guard("funds", "write", funds.handleCreateFund))
-			r.Get("/{id}", funds.handleGetFund)
+			r.Get("/{id}", guard("funds", "read", funds.handleGetFund))
 			r.Patch("/{id}", guard("funds", "write", funds.handleUpdateFund))
 			r.Delete("/{id}", guard("funds", "delete", funds.handleDeleteFund))
-			r.Get("/{id}/investors", funds.handleListInvestors)
+			r.Get("/{id}/investors", guard("funds", "read", funds.handleListInvestors))
 		})
 
 		// eSign
 		r.Route("/esign", func(r chi.Router) {
-			r.Get("/envelopes", esign.handleListEnvelopes)
+			r.Get("/envelopes", guard("esign", "read", esign.handleListEnvelopes))
 			r.Post("/envelopes", guard("esign", "write", esign.handleCreateEnvelope))
-			r.Get("/envelopes/{id}", esign.handleGetEnvelope)
+			r.Get("/envelopes/{id}", guard("esign", "read", esign.handleGetEnvelope))
 			r.Post("/envelopes/{id}/sign", guard("esign", "write", esign.handleSign))
-			r.Get("/templates", esign.handleListTemplates)
+			r.Get("/templates", guard("esign", "read", esign.handleListTemplates))
 			r.Post("/templates", guard("esign", "write", esign.handleCreateTemplate))
 		})
 
@@ -204,43 +204,43 @@ func NewRouter(store ComplianceStore, adminStore *admin.Store, authStore ...*aut
 		})
 
 		// Modules (for permission matrix)
-		r.Get("/modules", roles.handleListModules)
+		r.Get("/modules", guard("roles", "read", roles.handleListModules))
 
 		// Dashboard
-		r.Get("/dashboard", dash.handleDashboard)
+		r.Get("/dashboard", guard("dashboard", "read", dash.handleDashboard))
 
 		// Users
-		r.Get("/users", users.handleListUsers)
-		r.Post("/users", guard("users", "write", users.handleCreateUser))
+		r.Get("/users", guard("roles", "read", users.handleListUsers))
+		r.Post("/users", guard("roles", "write", users.handleCreateUser))
 
 		// Transactions
-		r.Get("/transactions", txns.handleListTransactions)
+		r.Get("/transactions", guard("transactions", "read", txns.handleListTransactions))
 
 		// Reports
-		r.Get("/reports", reports.handleListReports)
+		r.Get("/reports", guard("transactions", "read", reports.handleListReports))
 
 		// Settings
-		r.Get("/settings", settings.handleGetSettings)
-		r.Put("/settings", guard("settings", "write", settings.handleUpdateSettings))
+		r.Get("/settings", guard("dashboard", "read", settings.handleGetSettings))
+		r.Put("/settings", guard("dashboard", "admin", settings.handleUpdateSettings))
 
 		// Credentials (API key management)
-		r.Get("/credentials", creds.handleListCredentials)
-		r.Post("/credentials", guard("credentials", "write", creds.handleCreateCredential))
-		r.Delete("/credentials/{id}", guard("credentials", "delete", creds.handleDeleteCredential))
+		r.Get("/credentials", guard("roles", "admin", creds.handleListCredentials))
+		r.Post("/credentials", guard("roles", "admin", creds.handleCreateCredential))
+		r.Delete("/credentials/{id}", guard("roles", "admin", creds.handleDeleteCredential))
 
 		// Billing
-		r.Get("/billing", billing.handleGetBilling)
+		r.Get("/billing", guard("dashboard", "read", billing.handleGetBilling))
 
 		// eSign dashboard (aggregate stats)
-		r.Get("/esign-dashboard", dash.handleESignDashboard)
+		r.Get("/esign-dashboard", guard("esign", "read", dash.handleESignDashboard))
 
 		// Envelope views by direction
-		r.Get("/envelopes/inbox", func(w http.ResponseWriter, r *http.Request) {
+		r.Get("/envelopes/inbox", guard("esign", "read", func(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, store.ListEnvelopesByDirection("inbox"))
-		})
-		r.Get("/envelopes/sent", func(w http.ResponseWriter, r *http.Request) {
+		}))
+		r.Get("/envelopes/sent", guard("esign", "read", func(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, store.ListEnvelopesByDirection("sent"))
-		})
+		}))
 	})
 
 	return r
@@ -260,7 +260,16 @@ func requireRole(store ComplianceStore, module, action string, next http.Handler
 		}
 
 		// super_admin is an escape hatch for bootstrap/recovery.
+		// Always log when this bypass is used for audit trail.
 		if roleName == "super_admin" {
+			user := admin.UserFromContext(r.Context())
+			log.Warn().
+				Str("user", user).
+				Str("module", module).
+				Str("action", action).
+				Str("path", r.URL.Path).
+				Str("method", r.Method).
+				Msg("super_admin bypass used")
 			next(w, r)
 			return
 		}
