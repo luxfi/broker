@@ -13,7 +13,6 @@ require (
 	google.golang.org/grpc v1.79.1
 )
 
-replace github.com/luxfi/compliance => ../compliance
 
 require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
