@@ -1,3 +1,5 @@
 brokerd
 .env
 *.exe
+node_modules/
+bin/
