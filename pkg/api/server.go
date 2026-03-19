@@ -13,6 +13,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
+	"github.com/luxfi/broker/pkg/accounts"
 	"github.com/luxfi/broker/pkg/admin"
 	"github.com/luxfi/broker/pkg/audit"
 	"github.com/luxfi/broker/pkg/auth"
@@ -27,6 +28,7 @@ import (
 
 type Server struct {
 	registry   *provider.Registry
+	resolver   *accounts.Resolver
 	sor        *router.Router
 	riskEng    *risk.Engine
 	auditLog   *audit.Log
@@ -47,6 +49,7 @@ func NewServer(registry *provider.Registry, listenAddr string) *Server {
 
 	s := &Server{
 		registry:   registry,
+		resolver:   accounts.NewResolver(),
 		sor:        router.New(registry),
 		riskEng:    risk.NewEngine(risk.DefaultLimits()),
 		auditLog:   audit.NewLog(),
@@ -203,6 +206,17 @@ func NewServer(registry *provider.Registry, listenAddr string) *Server {
 		r.Get("/events/{provider}/accounts", s.handleStreamAccountEvents)
 		r.Get("/events/{provider}/transfers", s.handleStreamTransferEvents)
 		r.Get("/events/{provider}/journals", s.handleStreamJournalEvents)
+
+		// Exchange frontend API (provider-agnostic, user-resolved)
+		r.Route("/exchange", func(r chi.Router) {
+			r.Get("/assets", s.handleFrontendAssets)
+			r.Get("/crypto-prices", s.handleCryptoPrices)
+			r.Get("/charts/{symbol}", s.handleChartData)
+			r.Get("/orders", s.handleFrontendOrders)
+			r.Post("/orders", s.handleFrontendCreateOrder)
+			r.Get("/positions", s.handleFrontendPositions)
+			r.Get("/portfolio", s.handleFrontendPortfolio)
+		})
 	})
 
 	s.router = r
@@ -242,6 +256,11 @@ func (s *Server) AdminStore() *admin.Store {
 // AuthStore returns the auth store for external configuration.
 func (s *Server) AuthStore() *auth.Store {
 	return s.authStore
+}
+
+// Resolver returns the account resolver for user-to-provider account mapping.
+func (s *Server) Resolver() *accounts.Resolver {
+	return s.resolver
 }
 
 func (s *Server) getProvider(r *http.Request) (provider.Provider, error) {
