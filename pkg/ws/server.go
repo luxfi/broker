@@ -57,7 +57,8 @@ func (s *Server) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	// CORS is handled by the chi CORS middleware at the router level.
+	// Don't set wildcard here — it bypasses the allowed origins list.
 
 	symbols := r.URL.Query()["symbols"]
 	if len(symbols) == 0 {
