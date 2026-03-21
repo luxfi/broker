@@ -6,6 +6,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -69,7 +70,7 @@ func (s *Store) Authenticate(username, password string) (string, error) {
 		return "", fmt.Errorf("invalid credentials")
 	}
 
-	if hashPassword(password, admin.Salt) != admin.PasswordHash {
+	if subtle.ConstantTimeCompare([]byte(hashPassword(password, admin.Salt)), []byte(admin.PasswordHash)) != 1 {
 		return "", fmt.Errorf("invalid credentials")
 	}
 
@@ -83,10 +84,18 @@ func (s *Store) ValidateToken(tokenStr string) (*Claims, error) {
 		return nil, fmt.Errorf("invalid token format")
 	}
 
-	// Verify signature
+	// Verify signature using constant-time comparison to prevent timing attacks
 	signingInput := parts[0] + "." + parts[1]
 	expectedSig := sign([]byte(signingInput), s.secret)
-	if parts[2] != expectedSig {
+	sigBytes, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil {
+		return nil, fmt.Errorf("invalid token signature")
+	}
+	expectedBytes, err := base64.RawURLEncoding.DecodeString(expectedSig)
+	if err != nil {
+		return nil, fmt.Errorf("invalid token signature")
+	}
+	if !hmac.Equal(sigBytes, expectedBytes) {
 		return nil, fmt.Errorf("invalid token signature")
 	}
 
@@ -168,9 +177,12 @@ func sign(data, secret []byte) string {
 }
 
 func hashPassword(password, salt string) string {
-	h := sha256.New()
-	h.Write([]byte(salt + password))
-	return hex.EncodeToString(h.Sum(nil))
+	key := []byte(salt + password)
+	for i := 0; i < 100_000; i++ {
+		h := sha256.Sum256(key)
+		key = h[:]
+	}
+	return hex.EncodeToString(key)
 }
 
 func writeAdminError(w http.ResponseWriter, status int, msg string) {
