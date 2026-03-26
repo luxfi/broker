@@ -1,0 +1,267 @@
+syntax = "proto3";
+
+package broker.v1;
+
+option go_package = "github.com/luxfi/broker/pkg/grpc/brokerpb";
+
+// BrokerService provides smart order routing, market data aggregation,
+// and order execution across multiple trading venues.
+service BrokerService {
+  // GetQuote returns the best consolidated quote for a symbol.
+  rpc GetQuote(GetQuoteRequest) returns (QuoteResponse);
+
+  // GetBBO returns the best bid/offer across all venues.
+  rpc GetBBO(GetBBORequest) returns (BBOResponse);
+
+  // GetRoutes returns all available routes ranked by net execution price.
+  rpc GetRoutes(GetRoutesRequest) returns (GetRoutesResponse);
+
+  // PlaceOrder places an order at a specific provider.
+  rpc PlaceOrder(PlaceOrderRequest) returns (OrderResponse);
+
+  // SmartOrder routes an order to the best-price venue.
+  rpc SmartOrder(SmartOrderRequest) returns (OrderResponse);
+
+  // CancelOrder cancels a pending order.
+  rpc CancelOrder(CancelOrderRequest) returns (CancelOrderResponse);
+
+  // GetSplitPlan returns a VWAP split plan across venues.
+  rpc GetSplitPlan(GetSplitPlanRequest) returns (SplitPlanResponse);
+
+  // ExecuteSplit executes a split plan across venues.
+  rpc ExecuteSplit(ExecuteSplitRequest) returns (ExecutionResultResponse);
+
+  // StartTWAP starts a time-weighted average price execution.
+  rpc StartTWAP(StartTWAPRequest) returns (TWAPResponse);
+
+  // CancelTWAP cancels a running TWAP execution.
+  rpc CancelTWAP(CancelTWAPRequest) returns (TWAPResponse);
+
+  // GetTWAP returns the state of a TWAP execution.
+  rpc GetTWAP(GetTWAPRequest) returns (TWAPResponse);
+
+  // ScanArbitrage returns current cross-venue arbitrage opportunities.
+  rpc ScanArbitrage(ScanArbitrageRequest) returns (ScanArbitrageResponse);
+
+  // StreamQuotes streams consolidated BBO updates for given symbols.
+  rpc StreamQuotes(StreamQuotesRequest) returns (stream QuoteResponse);
+
+  // ListProviders returns all registered providers.
+  rpc ListProviders(ListProvidersRequest) returns (ListProvidersResponse);
+
+  // HealthCheck returns the service health status.
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+message GetQuoteRequest {
+  string symbol = 1;
+}
+
+message QuoteResponse {
+  string symbol = 1;
+  double bid_price = 2;
+  double ask_price = 3;
+  double bid_size = 4;
+  double ask_size = 5;
+  string bid_provider = 6;
+  string ask_provider = 7;
+  double spread_bps = 8;
+  string timestamp = 9;
+}
+
+message GetBBORequest {
+  string symbol = 1;
+}
+
+message BBOResponse {
+  string symbol = 1;
+  double best_bid = 2;
+  double best_ask = 3;
+  string best_bid_provider = 4;
+  string best_ask_provider = 5;
+  double spread = 6;
+  double spread_bps = 7;
+}
+
+message GetRoutesRequest {
+  string symbol = 1;
+  string side = 2; // buy, sell
+}
+
+message GetRoutesResponse {
+  repeated RouteResult routes = 1;
+}
+
+message RouteResult {
+  string provider = 1;
+  string symbol = 2;
+  double bid_price = 3;
+  double ask_price = 4;
+  double spread_bps = 5;
+  double maker_fee_bps = 6;
+  double taker_fee_bps = 7;
+  double net_price = 8;
+  double score = 9;
+}
+
+message PlaceOrderRequest {
+  string provider = 1;
+  string account_id = 2;
+  string symbol = 3;
+  string qty = 4;
+  string side = 5;
+  string type = 6;
+  string time_in_force = 7;
+  string limit_price = 8;
+  string stop_price = 9;
+}
+
+message SmartOrderRequest {
+  string symbol = 1;
+  string qty = 2;
+  string side = 3;
+  string type = 4;
+  string time_in_force = 5;
+  map<string, string> accounts = 6; // provider -> account_id
+}
+
+message OrderResponse {
+  string id = 1;
+  string provider = 2;
+  string provider_id = 3;
+  string symbol = 4;
+  string status = 5;
+  string filled_qty = 6;
+  string filled_avg_price = 7;
+}
+
+message CancelOrderRequest {
+  string provider = 1;
+  string account_id = 2;
+  string order_id = 3;
+}
+
+message CancelOrderResponse {
+  bool success = 1;
+}
+
+message GetSplitPlanRequest {
+  string symbol = 1;
+  string side = 2;
+  string qty = 3;
+}
+
+message SplitPlanResponse {
+  string symbol = 1;
+  string side = 2;
+  string total_qty = 3;
+  string algorithm = 4;
+  repeated SplitLeg legs = 5;
+  double estimated_vwap = 6;
+  double estimated_fees = 7;
+  double estimated_net = 8;
+  double savings_bps = 9;
+}
+
+message SplitLeg {
+  string provider = 1;
+  string qty = 2;
+  double estimated_price = 3;
+  double estimated_fee = 4;
+  double bid_price = 5;
+  double ask_price = 6;
+}
+
+message ExecuteSplitRequest {
+  string symbol = 1;
+  string side = 2;
+  string total_qty = 3;
+  repeated SplitLeg legs = 4;
+  map<string, string> accounts = 5; // provider -> account_id
+}
+
+message ExecutionResultResponse {
+  string plan_id = 1;
+  string symbol = 2;
+  string side = 3;
+  string status = 4;
+  string filled_qty = 5;
+  double vwap = 6;
+  string latency = 7;
+  repeated ExecutionLeg legs = 8;
+}
+
+message ExecutionLeg {
+  string provider = 1;
+  string order_id = 2;
+  string qty = 3;
+  string filled_qty = 4;
+  double price = 5;
+  string status = 6;
+  string latency = 7;
+}
+
+message StartTWAPRequest {
+  string symbol = 1;
+  string side = 2;
+  double total_qty = 3;
+  int64 duration_seconds = 4;
+  int32 slices = 5;
+  double max_slippage_bps = 6;
+  map<string, string> accounts = 7;
+}
+
+message CancelTWAPRequest {
+  string execution_id = 1;
+}
+
+message GetTWAPRequest {
+  string execution_id = 1;
+}
+
+message TWAPResponse {
+  string id = 1;
+  string status = 2;
+  int32 slices_filled = 3;
+  double total_filled = 4;
+  double vwap = 5;
+  string started_at = 6;
+  string completed_at = 7;
+}
+
+message ScanArbitrageRequest {
+  double threshold_bps = 1; // minimum spread to report
+  string symbol = 2;        // optional: filter to one symbol
+}
+
+message ScanArbitrageResponse {
+  repeated ArbitrageOpportunity opportunities = 1;
+}
+
+message ArbitrageOpportunity {
+  string symbol = 1;
+  string buy_venue = 2;
+  string sell_venue = 3;
+  double buy_price = 4;
+  double sell_price = 5;
+  double spread_abs = 6;
+  double spread_bps = 7;
+  string detected_at = 8;
+}
+
+message StreamQuotesRequest {
+  repeated string symbols = 1;
+}
+
+message ListProvidersRequest {}
+
+message ListProvidersResponse {
+  repeated string providers = 1;
+}
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  string status = 1;
+  repeated string providers = 2;
+}

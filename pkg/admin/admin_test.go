@@ -291,8 +291,8 @@ func okHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{
-			"user": r.Header.Get("X-Admin-User"),
-			"role": r.Header.Get("X-Admin-Role"),
+			"user": UserFromContext(r.Context()),
+			"role": RoleFromContext(r.Context()),
 		})
 	})
 }
