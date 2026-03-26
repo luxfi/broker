@@ -867,8 +867,28 @@ func (p *Provider) doData(ctx context.Context, method, path string) ([]byte, int
 }
 
 func (p *Provider) GetSnapshot(ctx context.Context, symbol string) (*types.MarketSnapshot, error) {
-	basePath := stocksOrCryptoPath(symbol)
-	data, _, err := p.doData(ctx, http.MethodGet, basePath+"/"+symbol+"/snapshot")
+	if isCryptoSymbol(symbol) {
+		// Alpaca sandbox doesn't support the single crypto snapshot endpoint
+		// (/v1beta3/crypto/us/{sym}/snapshot returns 404). Use the batch endpoint instead.
+		path := "/v1beta3/crypto/us/snapshots?symbols=" + symbol
+		data, _, err := p.doData(ctx, http.MethodGet, path)
+		if err != nil {
+			return nil, err
+		}
+		var wrapper struct {
+			Snapshots map[string]json.RawMessage `json:"snapshots"`
+		}
+		if err := json.Unmarshal(data, &wrapper); err != nil {
+			return nil, fmt.Errorf("parse crypto snapshots: %w", err)
+		}
+		raw, ok := wrapper.Snapshots[symbol]
+		if !ok {
+			return nil, fmt.Errorf("crypto snapshot not found for %s", symbol)
+		}
+		return p.parseSnapshot(symbol, raw)
+	}
+	// Stock: single snapshot endpoint works
+	data, _, err := p.doData(ctx, http.MethodGet, "/v2/stocks/"+symbol+"/snapshot")
 	if err != nil {
 		return nil, err
 	}
