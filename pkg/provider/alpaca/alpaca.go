@@ -1107,8 +1107,15 @@ func (p *Provider) GetBars(ctx context.Context, symbol, timeframe, start, end st
 		}
 
 		for _, b := range bars {
+			var timeMs int64
+			if t, err := time.Parse(time.RFC3339, b.T); err == nil {
+				timeMs = t.UnixMilli()
+			} else if t, err := time.Parse(time.RFC3339Nano, b.T); err == nil {
+				timeMs = t.UnixMilli()
+			}
 			allBars = append(allBars, &types.Bar{
 				Timestamp:  b.T,
+				TimeMs:     timeMs,
 				Open:       b.O,
 				High:       b.H,
 				Low:        b.L,

@@ -194,6 +194,7 @@ type Quote struct {
 // Bar is an OHLCV candle.
 type Bar struct {
 	Timestamp string  `json:"timestamp"`
+	TimeMs    int64   `json:"time_ms"`
 	Open      float64 `json:"open"`
 	High      float64 `json:"high"`
 	Low       float64 `json:"low"`
