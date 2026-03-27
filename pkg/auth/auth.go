@@ -74,6 +74,18 @@ func Middleware(store *Store) func(http.Handler) http.Handler {
 				return
 			}
 
+			// Skip API key auth when request comes from ATS proxy (already
+			// authenticated by Gateway via JWT). ATS sets X-Broker-User-Id
+			// and X-Broker-Org-Id after validating the user's session.
+			if userId := r.Header.Get("X-Broker-User-Id"); userId != "" {
+				if orgId := r.Header.Get("X-Broker-Org-Id"); orgId != "" {
+					r.Header.Set("X-Org-ID", orgId)
+					r.Header.Set("X-API-Key-Name", "ats-proxy")
+				}
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			key := extractAPIKey(r)
 			if key == "" {
 				w.Header().Set("Content-Type", "application/json")
@@ -102,6 +114,11 @@ func Middleware(store *Store) func(http.Handler) http.Handler {
 func RequirePermission(store *Store, perm string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// ATS proxy bypass — already authenticated
+			if r.Header.Get("X-Broker-User-Id") != "" {
+				next.ServeHTTP(w, r)
+				return
+			}
 			key := extractAPIKey(r)
 			if key == "" {
 				w.Header().Set("Content-Type", "application/json")
