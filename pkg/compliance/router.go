@@ -10,7 +10,26 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/luxfi/broker/pkg/admin"
 	"github.com/luxfi/broker/pkg/auth"
+	"github.com/luxfi/broker/pkg/compliance/jube"
 )
+
+// RouterOption configures optional dependencies for the compliance router.
+type RouterOption func(*routerConfig)
+
+type routerConfig struct {
+	authStore  *auth.Store
+	jubeClient *jube.Client
+}
+
+// WithAuthStore adds API key management to the compliance router.
+func WithAuthStore(s *auth.Store) RouterOption {
+	return func(cfg *routerConfig) { cfg.authStore = s }
+}
+
+// WithJubeClient adds the Jube AML sidecar client for live screening.
+func WithJubeClient(c *jube.Client) RouterOption {
+	return func(cfg *routerConfig) { cfg.jubeClient = c }
+}
 
 // NewRouter creates a chi sub-router with all compliance endpoints.
 // Mount this under /compliance on the main router.
@@ -43,6 +62,8 @@ func NewRouter(store ComplianceStore, adminStore *admin.Store, authStore ...*aut
 	settings := &settingsHandler{store: store}
 	creds := &credentialsHandler{store: store, authStore: as}
 	billing := &billingHandler{}
+	aml := &amlHandler{store: store}
+	apps := &applicationHandler{store: store}
 
 	// guard wraps a handler with RBAC.
 	guard := func(module, action string, h http.HandlerFunc) http.HandlerFunc {
@@ -53,7 +74,7 @@ func NewRouter(store ComplianceStore, adminStore *admin.Store, authStore ...*aut
 
 	// CORS — allow the admin frontend at specific ports and production origins.
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:3000", "http://localhost:3100", "https://*.example.com"},
+		AllowedOrigins:   []string{"http://localhost:3000", "http://localhost:3100", "https://*.satschel.com", "https://*.liquidity.io"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
 		AllowCredentials: true,
@@ -82,7 +103,35 @@ func NewRouter(store ComplianceStore, adminStore *admin.Store, authStore ...*aut
 		// KYC
 		r.Route("/kyc", func(r chi.Router) {
 			r.Post("/verify", guard("kyc", "write", kyc.handleVerify))
+			r.Get("/", kyc.handleListByUser)
 			r.Get("/{id}", kyc.handleGet)
+			r.Patch("/{id}", guard("kyc", "write", kyc.handleUpdateStatus))
+			r.Post("/{id}/documents", guard("kyc", "write", kyc.handleUploadDocument))
+		})
+
+		// AML
+		r.Route("/aml", func(r chi.Router) {
+			r.Post("/screen", guard("aml", "write", aml.handleScreen))
+			r.Post("/risk-assessment", guard("aml", "write", aml.handleRiskAssessment))
+			r.Get("/screenings", aml.handleListByAccount)
+			r.Get("/flagged", aml.handleListFlagged)
+			r.Get("/screenings/{id}", aml.handleGet)
+			r.Post("/screenings/{id}/review", guard("aml", "write", aml.handleReview))
+		})
+
+		// Onboarding Applications
+		r.Route("/applications", func(r chi.Router) {
+			r.Get("/", apps.handleList)
+			r.Post("/", guard("applications", "write", apps.handleCreate))
+			r.Get("/lookup", apps.handleGetByUser)
+			r.Get("/{id}", apps.handleGet)
+			r.Post("/{id}/step/1", guard("applications", "write", apps.handleStep1))
+			r.Post("/{id}/step/2", guard("applications", "write", apps.handleStep2))
+			r.Post("/{id}/step/3", guard("applications", "write", apps.handleStep3))
+			r.Post("/{id}/step/4", guard("applications", "write", apps.handleStep4))
+			r.Post("/{id}/step/5", guard("applications", "write", apps.handleStep5))
+			r.Post("/{id}/review", guard("applications", "write", apps.handleReview))
+			r.Get("/{id}/documents", apps.handleGetDocuments)
 		})
 
 		// Pipelines
