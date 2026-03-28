@@ -17,19 +17,15 @@ import (
 
 // ssnHMACKey is the key used for HMAC-SHA256 hashing of SSNs.
 // Must be set via SSN_HMAC_KEY environment variable (sourced from KMS).
-// In production (BROKER_ENV=production), the process will refuse to start
-// without this key to prevent silent fallback to a weak default.
-var ssnHMACKey = func() []byte {
-	if key := os.Getenv("SSN_HMAC_KEY"); key != "" {
-		return []byte(key)
+var ssnHMACKey []byte
+
+func init() {
+	key := os.Getenv("SSN_HMAC_KEY")
+	if key == "" {
+		panic("SSN_HMAC_KEY environment variable is required — provision via KMS")
 	}
-	if os.Getenv("BROKER_ENV") == "production" {
-		// Hard-fail in production. SSN hashing without a proper KMS key
-		// is a compliance violation.
-		panic("FATAL: SSN_HMAC_KEY must be set in production (source from KMS)")
-	}
-	return []byte("CHANGE-ME-USE-KMS-IN-PRODUCTION")
-}()
+	ssnHMACKey = []byte(key)
+}
 
 // applicationHandler manages the 5-step investor onboarding flow.
 type applicationHandler struct {
