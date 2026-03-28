@@ -47,6 +47,7 @@ type ComplianceStore interface {
 	// Role
 	SaveRole(role *Role) error
 	GetRole(id string) (*Role, error)
+	GetRoleByName(name string) (*Role, error)
 	ListRoles() []*Role
 	DeleteRole(id string) error
 
@@ -423,6 +424,17 @@ func (s *MemoryStore) GetRole(id string) (*Role, error) {
 		return nil, fmt.Errorf("role not found")
 	}
 	return role, nil
+}
+
+func (s *MemoryStore) GetRoleByName(name string) (*Role, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, role := range s.roles {
+		if role.Name == name {
+			return role, nil
+		}
+	}
+	return nil, fmt.Errorf("role not found: %s", name)
 }
 
 func (s *MemoryStore) ListRoles() []*Role {
