@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/luxfi/compliance/pkg/rbac"
 )
 
 // rolesHandler holds RBAC HTTP handler state.
@@ -85,16 +86,7 @@ func (h *rolesHandler) handleDeleteRole(w http.ResponseWriter, r *http.Request) 
 
 // handleListModules returns the static list of compliance modules and their
 // available actions, used to build a permission matrix UI.
+// Uses the canonical definition from the compliance library to prevent drift.
 func (h *rolesHandler) handleListModules(w http.ResponseWriter, r *http.Request) {
-	modules := []Module{
-		{Name: "kyc", Description: "KYC identity verification", Actions: []string{"read", "write", "admin"}},
-		{Name: "aml", Description: "AML screening and monitoring", Actions: []string{"read", "write", "admin"}},
-		{Name: "applications", Description: "Onboarding applications", Actions: []string{"read", "write", "admin"}},
-		{Name: "funds", Description: "Fund management", Actions: []string{"read", "write", "delete", "admin"}},
-		{Name: "esign", Description: "Electronic signatures", Actions: []string{"read", "write", "admin"}},
-		{Name: "pipelines", Description: "Onboarding pipelines", Actions: []string{"read", "write", "delete", "admin"}},
-		{Name: "sessions", Description: "Investor onboarding sessions", Actions: []string{"read", "write", "admin"}},
-		{Name: "roles", Description: "Role-based access control", Actions: []string{"read", "write", "delete", "admin"}},
-	}
-	writeJSON(w, http.StatusOK, modules)
+	writeJSON(w, http.StatusOK, rbac.ComplianceModules())
 }
