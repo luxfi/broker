@@ -685,3 +685,121 @@ type CorporateActionParams struct {
 	Until  string   `json:"until,omitempty"`
 	Symbol string   `json:"symbol,omitempty"`
 }
+
+// --- Options Types ---
+
+// OptionChain is the full set of contracts for a symbol and expiration.
+type OptionChain struct {
+	Symbol     string           `json:"symbol"`
+	Expiration string           `json:"expiration"`
+	Calls      []OptionContract `json:"calls"`
+	Puts       []OptionContract `json:"puts"`
+}
+
+// OptionContract is a single option contract in a chain.
+type OptionContract struct {
+	Symbol       string  `json:"symbol"`        // OCC symbol, e.g. AAPL260418C00150000
+	Underlying   string  `json:"underlying"`
+	ContractType string  `json:"contract_type"` // call, put
+	Strike       float64 `json:"strike"`
+	Expiration   string  `json:"expiration"`    // YYYY-MM-DD
+	Style        string  `json:"style"`         // american, european
+	Status       string  `json:"status"`
+	Tradable     bool    `json:"tradable"`
+	Bid          float64 `json:"bid"`
+	Ask          float64 `json:"ask"`
+	Last         float64 `json:"last"`
+	Volume       int     `json:"volume"`
+	OpenInterest int     `json:"open_interest"`
+	Greeks       Greeks  `json:"greeks"`
+}
+
+// Greeks are the option sensitivity measures.
+type Greeks struct {
+	Delta float64 `json:"delta"`
+	Gamma float64 `json:"gamma"`
+	Theta float64 `json:"theta"`
+	Vega  float64 `json:"vega"`
+	Rho   float64 `json:"rho"`
+	IV    float64 `json:"implied_volatility"`
+}
+
+// OptionQuote is a real-time quote for a single option contract.
+type OptionQuote struct {
+	Symbol       string  `json:"symbol"`
+	Underlying   string  `json:"underlying"`
+	ContractType string  `json:"contract_type"`
+	Strike       float64 `json:"strike"`
+	Expiration   string  `json:"expiration"`
+	Bid          float64 `json:"bid"`
+	Ask          float64 `json:"ask"`
+	Last         float64 `json:"last"`
+	Volume       int     `json:"volume"`
+	OpenInterest int     `json:"open_interest"`
+	Greeks       Greeks  `json:"greeks"`
+}
+
+// CreateOptionOrderRequest places a single-leg option order.
+type CreateOptionOrderRequest struct {
+	Symbol       string `json:"symbol"`        // underlying symbol, e.g. "AAPL"
+	ContractSymbol string `json:"contract_symbol,omitempty"` // OCC symbol if known
+	ContractType string `json:"contract_type"` // call, put
+	Strike       string `json:"strike"`
+	Expiration   string `json:"expiration"`    // YYYY-MM-DD
+	Action       string `json:"action"`        // buy_to_open, buy_to_close, sell_to_open, sell_to_close
+	Qty          string `json:"qty"`
+	OrderType    string `json:"order_type"`    // market, limit, stop, stop_limit
+	LimitPrice   string `json:"limit_price,omitempty"`
+	StopPrice    string `json:"stop_price,omitempty"`
+	TimeInForce  string `json:"time_in_force"` // day, gtc, ioc
+}
+
+// CreateMultiLegOrderRequest places a multi-leg strategy order.
+type CreateMultiLegOrderRequest struct {
+	Symbol       string      `json:"symbol"`        // underlying symbol
+	StrategyType string      `json:"strategy_type"` // vertical, iron_condor, straddle, strangle, calendar, custom
+	Legs         []OptionLeg `json:"legs"`
+	OrderType    string      `json:"order_type"`    // limit, market
+	LimitPrice   string      `json:"limit_price,omitempty"` // net debit/credit
+	TimeInForce  string      `json:"time_in_force"`
+}
+
+// OptionLeg is a single leg of a multi-leg options strategy.
+type OptionLeg struct {
+	ContractSymbol string `json:"contract_symbol,omitempty"` // OCC symbol if known
+	ContractType   string `json:"contract_type"` // call, put
+	Strike         string `json:"strike"`
+	Expiration     string `json:"expiration"`
+	Action         string `json:"action"` // buy_to_open, buy_to_close, sell_to_open, sell_to_close
+	Quantity       string `json:"qty"`
+}
+
+// MultiLegOrderResult is the result of placing a multi-leg order.
+type MultiLegOrderResult struct {
+	StrategyOrderID string   `json:"strategy_order_id"`
+	LegOrders       []*Order `json:"leg_orders,omitempty"`
+	NetPremium      string   `json:"net_premium,omitempty"`
+	Status          string   `json:"status"`
+}
+
+// ExerciseOptionRequest exercises an option contract early.
+type ExerciseOptionRequest struct {
+	ContractSymbol string `json:"contract_symbol"`
+	Qty            int    `json:"qty"`
+}
+
+// OptionPosition is a held option position.
+type OptionPosition struct {
+	Symbol        string  `json:"symbol"`        // OCC symbol
+	Underlying    string  `json:"underlying"`
+	ContractType  string  `json:"contract_type"`
+	Strike        float64 `json:"strike"`
+	Expiration    string  `json:"expiration"`
+	Qty           string  `json:"qty"`
+	AvgCost       string  `json:"avg_cost"`
+	MarketValue   string  `json:"market_value"`
+	CurrentPrice  string  `json:"current_price"`
+	UnrealizedPnL string  `json:"unrealized_pnl"`
+	Side          string  `json:"side"` // long, short
+	Greeks        Greeks  `json:"greeks"`
+}
