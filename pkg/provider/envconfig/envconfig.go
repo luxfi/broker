@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/luxfi/broker/pkg/provider"
+	"github.com/luxfi/broker/pkg/provider/apex"
 	"github.com/luxfi/broker/pkg/provider/alpaca"
 	"github.com/luxfi/broker/pkg/provider/binance"
 	"github.com/luxfi/broker/pkg/provider/bitgo"
@@ -189,6 +190,13 @@ func RegisterFromEnv(registry *provider.Registry) int {
 			Password: os.Getenv("LMAX_PASSWORD"),
 		}))
 		slog.Info("provider registered", "name", "lmax")
+		n++
+	}
+
+	if key := os.Getenv("APEX_API_KEY"); key != "" {
+		sandbox := os.Getenv("APEX_SANDBOX") == "true" || os.Getenv("APEX_SANDBOX") == "1"
+		registry.Register(apex.New(key, os.Getenv("APEX_API_SECRET"), sandbox))
+		slog.Info("provider registered", "name", "apex")
 		n++
 	}
 
