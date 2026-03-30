@@ -15,7 +15,7 @@ func TestRegisterFromEnv_NoVars(t *testing.T) {
 		"COINBASE_API_KEY", "BINANCE_API_KEY", "KRAKEN_API_KEY",
 		"GEMINI_API_KEY", "FIREBLOCKS_API_KEY", "CIRCLE_API_KEY",
 		"TRADIER_ACCESS_TOKEN", "POLYGON_API_KEY", "CURRENCYCLOUD_LOGIN_ID",
-		"LMAX_API_KEY",
+		"LMAX_API_KEY", "APEX_API_KEY",
 	}
 	for _, k := range envKeys {
 		os.Unsetenv(k)
@@ -40,7 +40,7 @@ func TestRegisterFromEnv_SetsCount(t *testing.T) {
 		"COINBASE_API_KEY", "BINANCE_API_KEY", "KRAKEN_API_KEY",
 		"GEMINI_API_KEY", "FIREBLOCKS_API_KEY", "CIRCLE_API_KEY",
 		"TRADIER_ACCESS_TOKEN", "POLYGON_API_KEY", "CURRENCYCLOUD_LOGIN_ID",
-		"LMAX_API_KEY",
+		"LMAX_API_KEY", "APEX_API_KEY",
 	}
 	for _, k := range envKeys {
 		os.Unsetenv(k)
@@ -71,7 +71,7 @@ func TestRegisterFromEnv_SetsCount(t *testing.T) {
 }
 
 func TestRegisterFromEnv_AllProviders(t *testing.T) {
-	// Set all 16 provider keys.
+	// Set all 17 provider keys.
 	t.Setenv("ALPACA_API_KEY", "k")
 	t.Setenv("IBKR_ACCESS_TOKEN", "k")
 	t.Setenv("BITGO_ACCESS_TOKEN", "k")
@@ -88,11 +88,12 @@ func TestRegisterFromEnv_AllProviders(t *testing.T) {
 	t.Setenv("POLYGON_API_KEY", "k")
 	t.Setenv("CURRENCYCLOUD_LOGIN_ID", "k")
 	t.Setenv("LMAX_API_KEY", "k")
+	t.Setenv("APEX_API_KEY", "k")
 
 	registry := provider.NewRegistry()
 	n := RegisterFromEnv(registry)
 
-	if n != 16 {
-		t.Fatalf("expected 16 providers, got %d", n)
+	if n != 17 {
+		t.Fatalf("expected 17 providers, got %d", n)
 	}
 }
