@@ -803,3 +803,237 @@ type OptionPosition struct {
 	Side          string  `json:"side"` // long, short
 	Greeks        Greeks  `json:"greeks"`
 }
+
+// FuturesContract is a tradeable futures contract.
+type FuturesContract struct {
+	Symbol            string  `json:"symbol"`     // e.g. ESM26
+	Underlying        string  `json:"underlying"` // e.g. ES
+	Name              string  `json:"name"`
+	Expiration        string  `json:"expiration"`
+	Exchange          string  `json:"exchange"` // CME, NYMEX, CBOT, ICE
+	TickSize          float64 `json:"tick_size"`
+	PointValue        float64 `json:"point_value"`
+	MarginInitial     float64 `json:"margin_initial"`
+	MarginMaintenance float64 `json:"margin_maintenance"`
+	Last              float64 `json:"last"`
+	Bid               float64 `json:"bid"`
+	Ask               float64 `json:"ask"`
+	Volume            int     `json:"volume"`
+	OpenInterest      int     `json:"open_interest"`
+	SettlementPrice   float64 `json:"settlement_price"`
+	Change            float64 `json:"change"`
+	ChangePercent     float64 `json:"change_percent"`
+	Tradable          bool    `json:"tradable"`
+}
+
+// FuturesQuote is a real-time quote for a futures contract.
+type FuturesQuote struct {
+	Symbol          string  `json:"symbol"`
+	Bid             float64 `json:"bid"`
+	Ask             float64 `json:"ask"`
+	Last            float64 `json:"last"`
+	Volume          int     `json:"volume"`
+	OpenInterest    int     `json:"open_interest"`
+	SettlementPrice float64 `json:"settlement_price"`
+}
+
+// CreateFuturesOrderRequest places a futures order.
+type CreateFuturesOrderRequest struct {
+	Symbol      string `json:"symbol"`
+	Side        string `json:"side"`       // buy, sell
+	Qty         string `json:"qty"`
+	OrderType   string `json:"order_type"` // market, limit, stop, stop_limit
+	LimitPrice  string `json:"limit_price,omitempty"`
+	StopPrice   string `json:"stop_price,omitempty"`
+	TimeInForce string `json:"time_in_force"`
+}
+
+// FuturesPosition is a held futures position.
+type FuturesPosition struct {
+	Symbol        string `json:"symbol"`
+	Underlying    string `json:"underlying"`
+	Side          string `json:"side"` // long, short
+	Qty           string `json:"qty"`
+	AvgEntryPrice string `json:"avg_entry_price"`
+	MarkPrice     string `json:"mark_price"`
+	UnrealizedPnL string `json:"unrealized_pnl"`
+	MarginUsed    string `json:"margin_used"`
+	Expiration    string `json:"expiration"`
+}
+
+// FuturesMarginRequirement is the margin requirement for a futures contract.
+type FuturesMarginRequirement struct {
+	Symbol            string `json:"symbol"`
+	InitialMargin     string `json:"initial_margin"`
+	MaintenanceMargin string `json:"maintenance_margin"`
+	DayTradeMargin    string `json:"day_trade_margin"`
+}
+
+// FXPair is a tradeable currency pair.
+type FXPair struct {
+	Symbol      string  `json:"symbol"` // e.g. EUR/USD
+	Base        string  `json:"base"`
+	Quote       string  `json:"quote"`
+	Bid         float64 `json:"bid"`
+	Ask         float64 `json:"ask"`
+	Spread      float64 `json:"spread"`
+	PipSize     float64 `json:"pip_size"`
+	MaxLeverage float64 `json:"max_leverage"`
+	Tradable    bool    `json:"tradable"`
+}
+
+// FXQuote is a real-time FX quote.
+type FXQuote struct {
+	Symbol    string  `json:"symbol"`
+	Bid       float64 `json:"bid"`
+	Ask       float64 `json:"ask"`
+	Mid       float64 `json:"mid"`
+	Spread    float64 `json:"spread"`
+	High24h   float64 `json:"high_24h"`
+	Low24h    float64 `json:"low_24h"`
+	Volume24h float64 `json:"volume_24h"`
+}
+
+// CreateFXOrderRequest places an FX order.
+type CreateFXOrderRequest struct {
+	Symbol      string `json:"symbol"`
+	Side        string `json:"side"`
+	Qty         string `json:"qty"`
+	OrderType   string `json:"order_type"`
+	LimitPrice  string `json:"limit_price,omitempty"`
+	StopPrice   string `json:"stop_price,omitempty"`
+	TakeProfit  string `json:"take_profit,omitempty"`
+	StopLoss    string `json:"stop_loss,omitempty"`
+	TimeInForce string `json:"time_in_force"`
+}
+
+// FXPosition is a held FX position.
+type FXPosition struct {
+	Symbol        string `json:"symbol"`
+	Side          string `json:"side"`
+	Qty           string `json:"qty"`
+	AvgEntryPrice string `json:"avg_entry_price"`
+	MarkPrice     string `json:"mark_price"`
+	UnrealizedPnL string `json:"unrealized_pnl"`
+	MarginUsed    string `json:"margin_used"`
+	Leverage      string `json:"leverage"`
+	SwapRate      string `json:"swap_rate"`
+}
+
+// FXRate is a spot exchange rate.
+type FXRate struct {
+	BaseCurrency  string  `json:"base_currency"`
+	QuoteCurrency string  `json:"quote_currency"`
+	Rate          float64 `json:"rate"`
+	InverseRate   float64 `json:"inverse_rate"`
+	Timestamp     string  `json:"timestamp"`
+}
+
+// Bond is a fixed income security.
+type Bond struct {
+	CUSIP        string  `json:"cusip"`
+	ISIN         string  `json:"isin,omitempty"`
+	Name         string  `json:"name"`
+	Issuer       string  `json:"issuer"`
+	Coupon       float64 `json:"coupon"`
+	MaturityDate string  `json:"maturity_date"`
+	YTM          float64 `json:"ytm"`
+	Price        float64 `json:"price"`       // clean price
+	Accrued      float64 `json:"accrued"`     // accrued interest
+	DirtyPrice   float64 `json:"dirty_price"` // clean + accrued
+	FaceValue    float64 `json:"face_value"`
+	Rating       string  `json:"rating"`    // AAA, BBB+, etc.
+	Sector       string  `json:"sector"`    // government, corporate, municipal
+	Frequency    string  `json:"frequency"` // annual, semi_annual, quarterly, monthly
+	Callable     bool    `json:"callable"`
+	CallDate     string  `json:"call_date,omitempty"`
+	Tradable     bool    `json:"tradable"`
+}
+
+// BondQuote is a real-time bond quote.
+type BondQuote struct {
+	CUSIP   string  `json:"cusip"`
+	Bid     float64 `json:"bid"`
+	Ask     float64 `json:"ask"`
+	Last    float64 `json:"last"`
+	YTM     float64 `json:"ytm"`
+	Accrued float64 `json:"accrued"`
+	Volume  int     `json:"volume"`
+}
+
+// BondSearchParams for searching bonds.
+type BondSearchParams struct {
+	Sector      string  `json:"sector,omitempty"`
+	MinRating   string  `json:"min_rating,omitempty"`
+	MaxRating   string  `json:"max_rating,omitempty"`
+	MinCoupon   float64 `json:"min_coupon,omitempty"`
+	MaxCoupon   float64 `json:"max_coupon,omitempty"`
+	MinYTM      float64 `json:"min_ytm,omitempty"`
+	MaxYTM      float64 `json:"max_ytm,omitempty"`
+	MinMaturity string  `json:"min_maturity,omitempty"` // YYYY-MM-DD
+	MaxMaturity string  `json:"max_maturity,omitempty"`
+	Callable    *bool   `json:"callable,omitempty"`
+	Limit       int     `json:"limit,omitempty"`
+}
+
+// CreateBondOrderRequest places a bond order.
+type CreateBondOrderRequest struct {
+	CUSIP       string `json:"cusip"`
+	Side        string `json:"side"` // buy, sell
+	Qty         string `json:"qty"`  // face value or units
+	OrderType   string `json:"order_type"`
+	LimitPrice  string `json:"limit_price,omitempty"`
+	TimeInForce string `json:"time_in_force"`
+}
+
+// BondPosition is a held bond position.
+type BondPosition struct {
+	CUSIP           string `json:"cusip"`
+	Name            string `json:"name"`
+	FaceValue       string `json:"face_value"`
+	Qty             string `json:"qty"`
+	AvgPrice        string `json:"avg_price"`
+	MarkPrice       string `json:"mark_price"`
+	Coupon          string `json:"coupon"`
+	YieldAtPurchase string `json:"yield_at_purchase"`
+	CurrentYield    string `json:"current_yield"`
+	UnrealizedPnL   string `json:"unrealized_pnl"`
+	AccruedInterest string `json:"accrued_interest"`
+	MaturityDate    string `json:"maturity_date"`
+	NextCouponDate  string `json:"next_coupon_date"`
+}
+
+// MarginCheckRequest checks margin for a proposed order.
+type MarginCheckRequest struct {
+	Symbol     string `json:"symbol"`
+	Side       string `json:"side"`
+	Qty        string `json:"qty"`
+	AssetClass string `json:"asset_class"` // equity, option, future, fx, bond
+	OrderType  string `json:"order_type,omitempty"`
+	LimitPrice string `json:"limit_price,omitempty"`
+}
+
+// MarginRequirements is the margin check response.
+type MarginRequirements struct {
+	InitialMargin     string `json:"initial_margin"`
+	MaintenanceMargin string `json:"maintenance_margin"`
+	BuyingPowerEffect string `json:"buying_power_effect"`
+	MarginType        string `json:"margin_type"` // reg_t, portfolio, span
+	Approved          bool   `json:"approved"`
+	RejectReason      string `json:"reject_reason,omitempty"`
+}
+
+// AccountMargin is the margin status for an account.
+type AccountMargin struct {
+	Equity                string `json:"equity"`
+	CashBalance           string `json:"cash_balance"`
+	BuyingPower           string `json:"buying_power"`
+	DayTradingBuyingPower string `json:"day_trading_buying_power"`
+	RegTBuyingPower       string `json:"regt_buying_power"`
+	InitialMargin         string `json:"initial_margin"`
+	MaintenanceMargin     string `json:"maintenance_margin"`
+	MarginMultiplier      string `json:"margin_multiplier"`
+	OptionsBuyingPower    string `json:"options_buying_power"`
+	PatternDayTrader      bool   `json:"pattern_day_trader"`
+	OptionsApprovalLevel  int    `json:"options_approval_level"`
+}
