@@ -226,6 +226,19 @@ func NewServer(registry *provider.Registry, listenAddr string) *Server {
 		r.Get("/events/{provider}/transfers", s.handleStreamTransferEvents)
 		r.Get("/events/{provider}/journals", s.handleStreamJournalEvents)
 
+		// Options Trading
+		r.Get("/options/{provider}/expirations/{symbol}", s.handleGetOptionExpirations)
+		r.Get("/options/{provider}/chain/{symbol}", s.handleGetOptionChain)
+		r.Get("/options/{provider}/chain/{symbol}/{expiration}", s.handleGetOptionChain)
+		r.Get("/options/{provider}/quote/{contractSymbol}", s.handleGetOptionQuote)
+		r.Get("/options/{provider}/greeks/{contractSymbol}", s.handleGetOptionGreeks)
+		r.Post("/accounts/{provider}/{accountId}/options/orders", s.handleCreateOptionOrder)
+		r.Post("/accounts/{provider}/{accountId}/options/multi-leg", s.handleCreateMultiLegOrder)
+		r.Post("/accounts/{provider}/{accountId}/options/exercise", s.handleExerciseOption)
+		r.Post("/accounts/{provider}/{accountId}/options/do-not-exercise", s.handleDoNotExercise)
+		r.Get("/accounts/{provider}/{accountId}/options/positions", s.handleGetOptionPositions)
+		r.Get("/options/route", s.handleRouteOptionOrder)
+
 		// Exchange frontend API (provider-agnostic, user-resolved)
 		r.Route("/exchange", func(r chi.Router) {
 			r.Get("/assets", s.handleFrontendAssets)

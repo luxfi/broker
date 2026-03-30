@@ -100,18 +100,24 @@ func main() {
 	srv.Mount("/compliance", compliance.NewRouter(complianceStore, adminStore))
 	log.Info().Msg("Compliance routes mounted at /compliance")
 
-	// --- gRPC Server ---
-	grpcAddr := envOr("BROKER_GRPC_LISTEN", ":9090")
-	grpcSrv, err := brokergrpc.NewServer(brokergrpc.Config{
-		ListenAddr:        grpcAddr,
-		Registry:          registry,
-		Router:            sor,
-		TWAPScheduler:     twapScheduler,
-		Feed:              feed,
-		ArbitrageDetector: arbDetector,
-	})
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create gRPC server")
+	// --- gRPC Server (optional) ---
+	grpcAddr := os.Getenv("BROKER_GRPC_LISTEN")
+	var grpcSrv *brokergrpc.Server
+	if grpcAddr != "" {
+		var err error
+		grpcSrv, err = brokergrpc.NewServer(brokergrpc.Config{
+			ListenAddr:        grpcAddr,
+			Registry:          registry,
+			Router:            sor,
+			TWAPScheduler:     twapScheduler,
+			Feed:              feed,
+			ArbitrageDetector: arbDetector,
+		})
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to create gRPC server")
+		}
+	} else {
+		log.Info().Msg("gRPC server disabled (set BROKER_GRPC_LISTEN to enable)")
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -122,15 +128,19 @@ func main() {
 		log.Info().Str("addr", listenAddr).Strs("providers", registry.List()).Msg("Broker REST API starting")
 		errCh <- srv.Start()
 	}()
-	go func() {
-		log.Info().Str("addr", grpcAddr).Msg("Broker gRPC API starting")
-		errCh <- grpcSrv.Serve()
-	}()
+	if grpcSrv != nil {
+		go func() {
+			log.Info().Str("addr", grpcAddr).Msg("Broker gRPC API starting")
+			errCh <- grpcSrv.Serve()
+		}()
+	}
 
 	select {
 	case <-ctx.Done():
 		log.Info().Msg("Shutting down...")
-		grpcSrv.Stop()
+		if grpcSrv != nil {
+			grpcSrv.Stop()
+		}
 		if err := srv.Shutdown(context.Background()); err != nil {
 			log.Error().Err(err).Msg("REST shutdown error")
 		}
