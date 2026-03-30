@@ -424,6 +424,117 @@ func (r *Router) SmartOrder(ctx context.Context, accountsByProvider map[string]s
 	return order, nil
 }
 
+// OptionRouteResult contains routing decision details for an options order.
+type OptionRouteResult struct {
+	Provider  string  `json:"provider"`
+	Contract  string  `json:"contract"`
+	Bid       float64 `json:"bid,omitempty"`
+	Ask       float64 `json:"ask,omitempty"`
+	Spread    float64 `json:"spread,omitempty"`
+	SpreadBps float64 `json:"spread_bps,omitempty"`
+	IV        float64 `json:"implied_volatility,omitempty"`
+	NetPrice  float64 `json:"net_price,omitempty"`
+	Score     float64 `json:"score"`
+}
+
+// RouteOptionOrder finds the best provider for an options contract.
+// It queries all providers that implement OptionsProvider, compares quotes, and
+// returns routes ranked by net execution price (spread + fees).
+func (r *Router) RouteOptionOrder(ctx context.Context, contractSymbol, side string) ([]*OptionRouteResult, error) {
+	providerNames := r.registry.List()
+	if len(providerNames) == 0 {
+		return nil, fmt.Errorf("no providers registered")
+	}
+
+	type result struct {
+		route *OptionRouteResult
+	}
+	ch := make(chan result, len(providerNames))
+	var wg sync.WaitGroup
+
+	for _, name := range providerNames {
+		wg.Add(1)
+		go func(provName string) {
+			defer wg.Done()
+
+			p, err := r.registry.Get(provName)
+			if err != nil {
+				return
+			}
+
+			// Check if provider supports options
+			op, ok := p.(provider.OptionsProvider)
+			if !ok {
+				return
+			}
+
+			quote, err := op.GetOptionQuote(ctx, contractSymbol)
+			if err != nil {
+				return
+			}
+
+			route := &OptionRouteResult{
+				Provider: provName,
+				Contract: contractSymbol,
+				Bid:      quote.Bid,
+				Ask:      quote.Ask,
+				IV:       quote.Greeks.IV,
+				Score:    1000,
+			}
+
+			// Get fee schedule
+			r.mu.RLock()
+			fees := r.fees[provName]
+			r.mu.RUnlock()
+
+			feeBps := 0.0
+			if fees != nil {
+				feeBps = fees.TakerBps
+			}
+
+			if quote.Ask > 0 && quote.Bid > 0 {
+				route.Spread = quote.Ask - quote.Bid
+				mid := (quote.Ask + quote.Bid) / 2
+				if mid > 0 {
+					route.SpreadBps = (route.Spread / mid) * 10000
+				}
+
+				if strings.EqualFold(side, "buy") {
+					route.NetPrice = quote.Ask * (1 + feeBps/10000)
+					route.Score = route.NetPrice
+				} else {
+					route.NetPrice = quote.Bid * (1 - feeBps/10000)
+					route.Score = -route.NetPrice
+				}
+			}
+
+			ch <- result{route: route}
+		}(name)
+	}
+
+	go func() {
+		wg.Wait()
+		close(ch)
+	}()
+
+	var routes []*OptionRouteResult
+	for res := range ch {
+		if res.route != nil {
+			routes = append(routes, res.route)
+		}
+	}
+
+	if len(routes) == 0 {
+		return nil, fmt.Errorf("no provider supports options contract %s", contractSymbol)
+	}
+
+	sort.Slice(routes, func(i, j int) bool {
+		return routes[i].Score < routes[j].Score
+	})
+
+	return routes, nil
+}
+
 // AggregatedAssets returns all tradable assets across all providers, deduplicated.
 func (r *Router) AggregatedAssets(ctx context.Context) ([]*AggregatedAsset, error) {
 	providerNames := r.registry.List()
@@ -509,9 +620,9 @@ func defaultCapabilities() map[string]*types.ProviderCapability {
 	return map[string]*types.ProviderCapability{
 		"alpaca": {
 			Name: "alpaca", Status: "active",
-			AssetClasses: []string{"us_equity", "crypto"},
+			AssetClasses: []string{"us_equity", "us_option", "crypto"},
 			OrderTypes:   []string{"market", "limit", "stop", "stop_limit", "trailing_stop"},
-			Features:     []string{"ach", "wire", "fractional", "extended_hours", "margin"},
+			Features:     []string{"ach", "wire", "fractional", "extended_hours", "margin", "options", "multi_leg"},
 		},
 		"sfox": {
 			Name: "sfox", Status: "active",
@@ -545,9 +656,9 @@ func defaultCapabilities() map[string]*types.ProviderCapability {
 		},
 		"ibkr": {
 			Name: "ibkr", Status: "active",
-			AssetClasses: []string{"us_equity", "option", "futures", "forex", "bond", "crypto"},
+			AssetClasses: []string{"us_equity", "us_option", "futures", "forex", "bond", "crypto"},
 			OrderTypes:   []string{"market", "limit", "stop", "stop_limit", "trailing_stop", "algo"},
-			Features:     []string{"margin", "short_selling", "options", "futures", "global_markets"},
+			Features:     []string{"margin", "short_selling", "options", "multi_leg", "futures", "global_markets"},
 		},
 		"bitgo": {
 			Name: "bitgo", Status: "active",
@@ -581,13 +692,13 @@ func defaultCapabilities() map[string]*types.ProviderCapability {
 		},
 		"tradier": {
 			Name: "tradier", Status: "active",
-			AssetClasses: []string{"us_equity", "option"},
+			AssetClasses: []string{"us_equity", "us_option"},
 			OrderTypes:   []string{"market", "limit", "stop", "stop_limit"},
-			Features:     []string{"commission_free", "options", "streaming", "extended_hours"},
+			Features:     []string{"commission_free", "options", "multi_leg", "streaming", "extended_hours"},
 		},
 		"polygon": {
 			Name: "polygon", Status: "active",
-			AssetClasses: []string{"us_equity", "crypto", "forex", "option"},
+			AssetClasses: []string{"us_equity", "crypto", "forex", "us_option"},
 			OrderTypes:   []string{},
 			Features:     []string{"market_data", "snapshots", "bars", "trades", "quotes", "real_time"},
 		},
