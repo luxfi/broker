@@ -6,6 +6,26 @@ import (
 	ggrpc "google.golang.org/grpc"
 )
 
+// BrokerServiceServer is the service interface that gRPC v1.79+ requires
+// for RegisterService. HandlerType must be an interface, not a concrete type.
+type BrokerServiceServer interface {
+	GetQuote(context.Context, *GetQuoteRequest) (*QuoteResponse, error)
+	GetBBO(context.Context, *GetBBORequest) (*BBOResponse, error)
+	GetRoutes(context.Context, *GetRoutesRequest) (*GetRoutesResponse, error)
+	PlaceOrder(context.Context, *PlaceOrderRequest) (*OrderResponse, error)
+	SmartOrder(context.Context, *SmartOrderRequest) (*OrderResponse, error)
+	CancelOrder(context.Context, *CancelOrderRequest) (*CancelOrderResponse, error)
+	GetSplitPlan(context.Context, *GetSplitPlanRequest) (*SplitPlanResponse, error)
+	ExecuteSplit(context.Context, *ExecuteSplitRequest) (*ExecutionResultResponse, error)
+	StartTWAP(context.Context, *StartTWAPRequest) (*TWAPResponse, error)
+	CancelTWAP(context.Context, *CancelTWAPRequest) (*TWAPResponse, error)
+	GetTWAP(context.Context, *GetTWAPRequest) (*TWAPResponse, error)
+	ScanArbitrage(context.Context, *ScanArbitrageRequest) (*ScanArbitrageResponse, error)
+	ListProviders(context.Context, *ListProvidersRequest) (*ListProvidersResponse, error)
+	HealthCheck(context.Context, *HealthCheckRequest) (*HealthCheckResponse, error)
+	StreamQuotes(*StreamQuotesRequest, ggrpc.ServerStream) error
+}
+
 // brokerServiceDesc is the gRPC ServiceDesc for the BrokerService.
 // It registers unary handlers for all RPCs defined in proto/broker.proto.
 // The StreamQuotes server-streaming RPC is registered as a stream handler.
@@ -13,7 +33,7 @@ import (
 // This will be replaced by protoc-generated registration once brokerpb/ is generated.
 var brokerServiceDesc = ggrpc.ServiceDesc{
 	ServiceName: "broker.v1.BrokerService",
-	HandlerType: (*Server)(nil),
+	HandlerType: (*BrokerServiceServer)(nil),
 	Methods: []ggrpc.MethodDesc{
 		{
 			MethodName: "GetQuote",
