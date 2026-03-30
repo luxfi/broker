@@ -54,6 +54,13 @@ const (
 	ActionMarketData    Action = "market_data.query"
 	ActionAuth          Action = "auth"
 	ActionError         Action = "error"
+
+	// Options trading audit actions
+	ActionOptionOrderCreate   Action = "option.order.create"
+	ActionOptionMultiLeg      Action = "option.order.multi_leg"
+	ActionOptionExercise      Action = "option.exercise"
+	ActionOptionDoNotExercise Action = "option.do_not_exercise"
+	ActionOptionChainQuery    Action = "option.chain.query"
 )
 
 // Hook is called for every audit entry (e.g., for external logging).
