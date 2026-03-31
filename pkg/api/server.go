@@ -248,6 +248,17 @@ func NewServer(registry *provider.Registry, listenAddr string) *Server {
 			r.Post("/orders", s.handleFrontendCreateOrder)
 			r.Get("/positions", s.handleFrontendPositions)
 			r.Get("/portfolio", s.handleFrontendPortfolio)
+
+			// Options (provider-agnostic, user-resolved)
+			r.Route("/options", func(r chi.Router) {
+				r.Post("/orders", s.handleExchangeCreateOptionOrder)
+				r.Post("/multi-leg", s.handleExchangeCreateMultiLegOrder)
+				r.Get("/chain/{symbol}", s.handleExchangeOptionChain)
+				r.Get("/expirations/{symbol}", s.handleExchangeOptionExpirations)
+				r.Get("/positions", s.handleExchangeOptionPositions)
+				r.Post("/orders/{id}/cancel", s.handleExchangeCancelOptionOrder)
+				r.Post("/exercise/{id}", s.handleExchangeExerciseOption)
+			})
 		})
 	})
 
