@@ -87,7 +87,7 @@ func NewServer(registry *provider.Registry, listenAddr string) *Server {
 	r.Use(chimw.Recoverer)
 	r.Use(chimw.Timeout(60 * time.Second))
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"https://*.lux.exchange.com", "https://*.lux.exchange", "https://mpc.lux.network", "http://localhost:3000", "http://localhost:3001"},
+		AllowedOrigins:   corsOriginsFromEnv(),
 		AllowedMethods:   []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-API-Key"},
 		AllowCredentials: true,
@@ -1224,4 +1224,21 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+// corsOriginsFromEnv returns CORS origins from CORS_ALLOWED_ORIGINS env var.
+// Defaults to lux.exchange if not set. WL consumers set their own origins.
+func corsOriginsFromEnv() []string {
+	defaults := []string{"https://lux.exchange", "https://admin.lux.exchange", "https://mpc.lux.network"}
+	if env := os.Getenv("BROKER_ENV"); env != "production" {
+		defaults = append(defaults, "http://localhost:3000", "http://localhost:3001")
+	}
+	if extra := os.Getenv("CORS_ALLOWED_ORIGINS"); extra != "" {
+		for _, o := range strings.Split(extra, ",") {
+			if trimmed := strings.TrimSpace(o); trimmed != "" {
+				defaults = append(defaults, trimmed)
+			}
+		}
+	}
+	return defaults
 }

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -79,12 +80,17 @@ func NewRouter(store ComplianceStore, adminStore *admin.Store, opts ...RouterOpt
 	// CORS — explicit production origins only. No wildcards to prevent
 	// subdomain takeover attacks (MEDIUM-2). Localhost origins gated behind
 	// environment check (LOW-2).
+	// CORS origins from env (comma-separated) or defaults
 	corsOrigins := []string{
-		"https://admin.lux.exchange.com",
-		"https://exchange.lux.exchange.com",
-		"https://app.lux.exchange.com",
-		"https://app.lux.exchange",
+		"https://lux.exchange",
 		"https://admin.lux.exchange",
+	}
+	if extra := os.Getenv("CORS_ALLOWED_ORIGINS"); extra != "" {
+		for _, o := range strings.Split(extra, ",") {
+			if trimmed := strings.TrimSpace(o); trimmed != "" {
+				corsOrigins = append(corsOrigins, trimmed)
+			}
+		}
 	}
 	if os.Getenv("BROKER_ENV") != "production" {
 		corsOrigins = append(corsOrigins, "http://localhost:3000", "http://localhost:3100")
