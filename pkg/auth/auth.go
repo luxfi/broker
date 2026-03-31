@@ -116,12 +116,31 @@ func Middleware(store *Store) func(http.Handler) http.Handler {
 }
 
 // RequirePermission returns middleware that checks for a specific permission.
+// IAM users are authorized based on roles from the X-User-Roles header (set by Gateway
+// from JWT claims). Admin role grants all permissions. Regular users get "read" and "trade".
 func RequirePermission(store *Store, perm string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// IAM auth — Gateway-validated user has all permissions
-			if r.Header.Get("X-User-Id") != "" || r.Header.Get("X-IAM-User-Id") != "" {
-				next.ServeHTTP(w, r)
+			// IAM auth — check roles propagated by Gateway from JWT claims
+			userId := r.Header.Get("X-User-Id")
+			if userId == "" {
+				userId = r.Header.Get("X-IAM-User-Id")
+			}
+			if userId != "" {
+				roles := r.Header.Get("X-User-Roles")
+				if hasRole(roles, perm) || hasRole(roles, "admin") {
+					next.ServeHTTP(w, r)
+					return
+				}
+				// Default permissions for authenticated IAM users without explicit roles:
+				// read and trade are allowed, admin-only endpoints are denied.
+				if perm == "read" || perm == "trade" {
+					next.ServeHTTP(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				w.Write([]byte(`{"error":"insufficient permissions"}`))
 				return
 			}
 			key := extractAPIKey(r)
@@ -141,6 +160,16 @@ func RequirePermission(store *Store, perm string) func(http.Handler) http.Handle
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// hasRole checks if a comma-separated roles string contains the given role.
+func hasRole(roles, role string) bool {
+	for _, r := range strings.Split(roles, ",") {
+		if strings.TrimSpace(r) == role {
+			return true
+		}
+	}
+	return false
 }
 
 func extractAPIKey(r *http.Request) string {
