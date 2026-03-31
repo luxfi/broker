@@ -582,13 +582,17 @@ func TestGetSnapshotStock(t *testing.T) {
 func TestGetSnapshotCrypto(t *testing.T) {
 	_, p := testServer(t, nil)
 	testDataServer(t, p, map[string]http.HandlerFunc{
-		"/v1beta3/crypto/us/BTC/USD/snapshot": func(w http.ResponseWriter, r *http.Request) {
+		"/v1beta3/crypto/us/snapshots": func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]interface{}{
-				"latestTrade": map[string]interface{}{
-					"t": "2024-01-15T10:00:00Z",
-					"p": 42000.0,
-					"s": 0.5,
+				"snapshots": map[string]interface{}{
+					"BTC/USD": map[string]interface{}{
+						"latestTrade": map[string]interface{}{
+							"t": "2024-01-15T10:00:00Z",
+							"p": 42000.0,
+							"s": 0.5,
+						},
+					},
 				},
 			})
 		},
