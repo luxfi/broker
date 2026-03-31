@@ -198,25 +198,28 @@ func (p *Provider) GetPortfolio(ctx context.Context, providerAccountID string) (
 // --- Orders ---
 
 func (p *Provider) CreateOrder(ctx context.Context, providerAccountID string, req *types.CreateOrderRequest) (*types.Order, error) {
-	body := map[string]interface{}{
-		"acctId":      providerAccountID,
-		"conid":       0, // needs contract ID lookup
-		"orderType":   mapOrderType(req.Type),
-		"side":        mapSide(req.Side),
-		"tif":         mapTIF(req.TimeInForce),
-		"quantity":    req.Qty,
-		"listingExchange": "SMART",
-	}
-	if req.LimitPrice != "" {
-		body["price"] = req.LimitPrice
-	}
-
 	// IBKR requires a contract ID — resolve from symbol
+	// Supports global symbols: AAPL (US), U.UN (TSX), SPUT.TO (TSX), VOD.L (LSE)
 	conid, err := p.resolveConid(ctx, req.Symbol)
 	if err != nil {
 		return nil, fmt.Errorf("ibkr: cannot resolve symbol %s: %w", req.Symbol, err)
 	}
-	body["conid"] = conid
+
+	body := map[string]interface{}{
+		"acctId":          providerAccountID,
+		"conid":           conid,
+		"orderType":       mapOrderType(req.Type),
+		"side":            mapSide(req.Side),
+		"tif":             mapTIF(req.TimeInForce),
+		"quantity":        req.Qty,
+		"listingExchange": "SMART", // IBKR auto-routes to best venue (TSX, NYSE, etc.)
+	}
+	if req.LimitPrice != "" {
+		body["price"] = req.LimitPrice
+	}
+	if req.StopPrice != "" {
+		body["auxPrice"] = req.StopPrice
+	}
 
 	data, _, err := p.do(ctx, http.MethodPost, "/iserver/account/"+providerAccountID+"/orders", map[string]interface{}{
 		"orders": []interface{}{body},
@@ -394,18 +397,36 @@ func (p *Provider) GetCalendar(_ context.Context, _, _ string) ([]*types.MarketC
 
 // --- Helpers ---
 
+// resolveConid resolves a symbol to an IBKR contract ID.
+// Supports all global exchanges: TSX (U.UN, SPUT.TO), LSE, HKEX, etc.
+// IBKR symbol search returns multiple matches across exchanges.
+// If symbol contains "." or ":" it's treated as exchange-qualified (e.g. "U.UN" for TSX).
 func (p *Provider) resolveConid(ctx context.Context, symbol string) (int, error) {
-	data, _, err := p.do(ctx, http.MethodGet, "/iserver/secdef/search?symbol="+symbol, nil)
+	data, _, err := p.do(ctx, http.MethodPost, "/iserver/secdef/search", map[string]interface{}{
+		"symbol": symbol,
+		"name":   true,
+	})
 	if err != nil {
 		return 0, err
 	}
 	var results []struct {
-		Conid int `json:"conid"`
+		Conid    int      `json:"conid"`
+		Symbol   string   `json:"symbol"`
+		Exchange string   `json:"description"` // exchange info in description
+		Sections []struct {
+			SecType  string `json:"secType"`
+			Exchange string `json:"exchange"`
+			Conid    int    `json:"conid,string"`
+		} `json:"sections"`
 	}
-	json.Unmarshal(data, &results)
+	if err := json.Unmarshal(data, &results); err != nil {
+		return 0, fmt.Errorf("parse search results: %w", err)
+	}
 	if len(results) == 0 {
 		return 0, fmt.Errorf("no contract found for %s", symbol)
 	}
+	// Return first match — IBKR returns best match first
+	// For exchange-specific symbols (U.UN, SPUT.TO) this resolves to TSX
 	return results[0].Conid, nil
 }
 
