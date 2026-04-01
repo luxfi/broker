@@ -133,8 +133,9 @@ func RequirePermission(store *Store, perm string) func(http.Handler) http.Handle
 					return
 				}
 				// Default permissions for authenticated IAM users without explicit roles:
-				// read and trade are allowed, admin-only endpoints are denied.
-				if perm == "read" || perm == "trade" {
+				// read (browsing) is allowed. Trade requires explicit role assignment
+				// to prevent pre-KYC users from placing orders (SEC Rule 301(b)(5)).
+				if perm == "read" {
 					next.ServeHTTP(w, r)
 					return
 				}
