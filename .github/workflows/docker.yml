@@ -10,8 +10,8 @@ permissions:
 
 jobs:
   docker:
-    uses: hanzoai/.github/.github/workflows/docker-build.yml@main
+    uses: liquidityio/.github/.github/workflows/docker-build.yml@main
     with:
-      image: ghcr.io/luxfi/broker
+      image: ghcr.io/liquidityio/bd
       platforms: linux/amd64,linux/arm64
     secrets: inherit
