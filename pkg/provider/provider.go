@@ -152,6 +152,16 @@ func (r *Registry) Get(name string) (Provider, error) {
 	return p, nil
 }
 
+func (r *Registry) Unregister(name string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.providers[name]; !ok {
+		return false
+	}
+	delete(r.providers, name)
+	return true
+}
+
 func (r *Registry) List() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
