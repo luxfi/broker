@@ -159,6 +159,111 @@ func (h *amlHandler) handleReview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, existing)
 }
 
+// walletScreenRequest is the input for wallet address screening.
+type walletScreenRequest struct {
+	Address   string `json:"address"`
+	Chain     string `json:"chain"`     // ethereum, liquidity, bitcoin
+	Direction string `json:"direction"` // send, receive
+}
+
+// walletScreenResponse is the result of a wallet address screen.
+type walletScreenResponse struct {
+	Address    string `json:"address"`
+	Risk       string `json:"risk"`       // low, medium, high, blocked
+	Sanctioned bool   `json:"sanctioned"`
+	Source     string `json:"source"`     // ofac, jube
+}
+
+// handleWalletScreen checks a crypto wallet address against OFAC SDN and Jube.
+func (h *amlHandler) handleWalletScreen(w http.ResponseWriter, r *http.Request) {
+	var req walletScreenRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Address == "" {
+		writeError(w, http.StatusBadRequest, "address is required")
+		return
+	}
+	if req.Chain == "" {
+		writeError(w, http.StatusBadRequest, "chain is required")
+		return
+	}
+	switch req.Chain {
+	case "ethereum", "liquidity", "bitcoin":
+	default:
+		writeError(w, http.StatusBadRequest, "chain must be ethereum, liquidity, or bitcoin")
+		return
+	}
+	if req.Direction == "" {
+		req.Direction = "receive"
+	}
+	if req.Direction != "send" && req.Direction != "receive" {
+		writeError(w, http.StatusBadRequest, "direction must be send or receive")
+		return
+	}
+
+	resp := walletScreenResponse{
+		Address: req.Address,
+		Risk:    "low",
+	}
+
+	// 1. Check OFAC SDN list (instant, local).
+	if source, hit := isOFACSanctioned(req.Address); hit {
+		resp.Risk = "blocked"
+		resp.Sanctioned = true
+		resp.Source = "ofac"
+
+		log.Warn().
+			Str("address", req.Address).
+			Str("chain", req.Chain).
+			Str("source", source).
+			Msg("aml: OFAC sanctioned wallet detected")
+
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+
+	// 2. Check via Jube for real-time risk scoring.
+	if h.jubeClient != nil {
+		txReq := jube.TransactionRequest{
+			EntityAnalysisModelID: 1,
+			EntityInstanceEntryPayload: map[string]interface{}{
+				"AccountId":  req.Address,
+				"EntityType": "wallet",
+				"Chain":      req.Chain,
+				"Direction":  req.Direction,
+			},
+		}
+
+		jubeResp, err := h.jubeClient.ScreenTransaction(r.Context(), txReq)
+		if err != nil {
+			log.Error().Err(err).Str("address", req.Address).Msg("aml: jube wallet screen failed")
+			// Jube unavailable -- return OFAC-only result (already low/clear).
+		} else {
+			resp.Source = "jube"
+			switch {
+			case jubeResp.Action == jube.ActionBlock || jubeResp.Score >= 80:
+				resp.Risk = "blocked"
+				resp.Sanctioned = true
+			case jubeResp.Score >= 60:
+				resp.Risk = "high"
+			case jubeResp.Score >= 30:
+				resp.Risk = "medium"
+			default:
+				resp.Risk = "low"
+			}
+		}
+	}
+
+	// Default source if neither OFAC nor Jube set it.
+	if resp.Source == "" {
+		resp.Source = "ofac"
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // handleRiskAssessment runs a risk assessment by screening a transaction through Jube.
 func (h *amlHandler) handleRiskAssessment(w http.ResponseWriter, r *http.Request) {
 	var req struct {
