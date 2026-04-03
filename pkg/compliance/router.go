@@ -232,7 +232,17 @@ func requireRole(store ComplianceStore, module, action string, next http.Handler
 			rolesHeader = "superadmin"
 		}
 
+		// Authenticated users with no explicit role get default access to
+		// self-service modules (sessions, applications, kyc). This allows
+		// new users to complete onboarding without pre-assigned roles.
 		if rolesHeader == "" {
+			selfServiceModules := map[string]bool{
+				"sessions": true, "applications": true, "kyc": true,
+			}
+			if selfServiceModules[module] {
+				next(w, r)
+				return
+			}
 			writeError(w, http.StatusForbidden, "no role in token")
 			return
 		}
