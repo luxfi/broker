@@ -81,6 +81,22 @@ func Middleware(iamEndpoint string) func(http.Handler) http.Handler {
 	}
 }
 
+// RequireOrg returns middleware that rejects requests from users outside
+// the specified org. Used to restrict compliance endpoints to built-in
+// org (superadmin operators) and keep customer orgs separate.
+func RequireOrg(allowedOrg string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			org := r.Header.Get("X-Org-Id")
+			if org != allowedOrg {
+				writeErr(w, http.StatusForbidden, "access restricted to "+allowedOrg+" org")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // RequirePermission checks X-User-Roles or X-User-IsAdmin.
 func RequirePermission(perm string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
