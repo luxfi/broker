@@ -1192,9 +1192,10 @@ func (s *PostgresStore) SaveApplication(app *Application) error {
 		INSERT INTO applications (id, user_id, email, first_name, last_name, phone, date_of_birth,
 			ssn_hash, ssn_last4, address_line1, address_line2, city, state, zip_code, country,
 			status, current_step, kyc_status, aml_status, steps, documents,
-			risk_level, risk_score, submitted_at, reviewed_by, reviewed_at, created_at, updated_at)
+			risk_level, risk_score, submitted_at, reviewed_by, reviewed_at,
+			alpaca_account_id, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-			$16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
+			$16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
 		ON CONFLICT (id) DO UPDATE SET
 			email = EXCLUDED.email,
 			first_name = EXCLUDED.first_name,
@@ -1220,13 +1221,14 @@ func (s *PostgresStore) SaveApplication(app *Application) error {
 			submitted_at = EXCLUDED.submitted_at,
 			reviewed_by = EXCLUDED.reviewed_by,
 			reviewed_at = EXCLUDED.reviewed_at,
+			alpaca_account_id = EXCLUDED.alpaca_account_id,
 			updated_at = EXCLUDED.updated_at
 	`, app.ID, app.UserID, app.Email, app.FirstName, app.LastName, app.Phone, app.DateOfBirth,
 		app.SSNHash, app.SSNLast4, app.AddressLine1, app.AddressLine2, app.City, app.State,
 		app.ZipCode, app.Country, string(app.Status), app.CurrentStep,
 		string(app.KYCStatus), string(app.AMLStatus), stepsJSON, docsJSON,
 		string(app.RiskLevel), app.RiskScore, submittedAt, app.ReviewedBy, reviewedAt,
-		app.CreatedAt, app.UpdatedAt)
+		app.AlpacaAccountID, app.CreatedAt, app.UpdatedAt)
 	return err
 }
 
@@ -1236,7 +1238,8 @@ func (s *PostgresStore) GetApplication(id string) (*Application, error) {
 		SELECT id, user_id, email, first_name, last_name, phone, date_of_birth,
 			ssn_hash, ssn_last4, address_line1, address_line2, city, state, zip_code, country,
 			status, current_step, kyc_status, aml_status, steps, documents,
-			risk_level, risk_score, submitted_at, reviewed_by, reviewed_at, created_at, updated_at
+			risk_level, risk_score, submitted_at, reviewed_by, reviewed_at,
+			alpaca_account_id, created_at, updated_at
 		FROM applications WHERE id = $1
 	`, id)
 }
@@ -1247,7 +1250,8 @@ func (s *PostgresStore) GetApplicationByUser(userID string) (*Application, error
 		SELECT id, user_id, email, first_name, last_name, phone, date_of_birth,
 			ssn_hash, ssn_last4, address_line1, address_line2, city, state, zip_code, country,
 			status, current_step, kyc_status, aml_status, steps, documents,
-			risk_level, risk_score, submitted_at, reviewed_by, reviewed_at, created_at, updated_at
+			risk_level, risk_score, submitted_at, reviewed_by, reviewed_at,
+			alpaca_account_id, created_at, updated_at
 		FROM applications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1
 	`, userID)
 }
@@ -1265,7 +1269,7 @@ func (s *PostgresStore) scanApplication(ctx context.Context, query string, args 
 		&app.ZipCode, &app.Country, &status, &app.CurrentStep,
 		&kycStatus, &amlStatus, &stepsJSON, &docsJSON,
 		&riskLevel, &app.RiskScore, &submittedAt, &app.ReviewedBy,
-		&reviewedAt, &app.CreatedAt, &app.UpdatedAt,
+		&reviewedAt, &app.AlpacaAccountID, &app.CreatedAt, &app.UpdatedAt,
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -1298,7 +1302,8 @@ func (s *PostgresStore) ListApplications() []*Application {
 		SELECT id, user_id, email, first_name, last_name, phone, date_of_birth,
 			ssn_hash, ssn_last4, address_line1, address_line2, city, state, zip_code, country,
 			status, current_step, kyc_status, aml_status, steps, documents,
-			risk_level, risk_score, submitted_at, reviewed_by, reviewed_at, created_at, updated_at
+			risk_level, risk_score, submitted_at, reviewed_by, reviewed_at,
+			alpaca_account_id, created_at, updated_at
 		FROM applications ORDER BY created_at DESC
 	`)
 	if err != nil {
@@ -1314,7 +1319,8 @@ func (s *PostgresStore) ListApplicationsByStatus(status ApplicationStatus) []*Ap
 		SELECT id, user_id, email, first_name, last_name, phone, date_of_birth,
 			ssn_hash, ssn_last4, address_line1, address_line2, city, state, zip_code, country,
 			status, current_step, kyc_status, aml_status, steps, documents,
-			risk_level, risk_score, submitted_at, reviewed_by, reviewed_at, created_at, updated_at
+			risk_level, risk_score, submitted_at, reviewed_by, reviewed_at,
+			alpaca_account_id, created_at, updated_at
 		FROM applications WHERE status = $1 ORDER BY created_at DESC
 	`, string(status))
 	if err != nil {
@@ -1339,7 +1345,7 @@ func (s *PostgresStore) scanApplicationRows(rows pgx.Rows) []*Application {
 			&app.ZipCode, &app.Country, &status, &app.CurrentStep,
 			&kycStatus, &amlStatus, &stepsJSON, &docsJSON,
 			&riskLevel, &app.RiskScore, &submittedAt, &app.ReviewedBy,
-			&reviewedAt, &app.CreatedAt, &app.UpdatedAt,
+			&reviewedAt, &app.AlpacaAccountID, &app.CreatedAt, &app.UpdatedAt,
 		); err != nil {
 			continue
 		}
