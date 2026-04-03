@@ -98,19 +98,17 @@ func NewRouter(store ComplianceStore, opts ...RouterOption) chi.Router {
 	})
 
 	// Customer-facing self-service endpoints — any authenticated user, any org.
-	// Customers create their own onboarding sessions and applications.
+	// liquidity org customers create their own onboarding sessions/applications.
 	r.Route("/sessions", func(r chi.Router) {
 		r.Get("/", guard("sessions", "read", onboard.handleListSessions))
 		r.Post("/", guard("sessions", "write", onboard.handleCreateSession))
 		r.Get("/{id}", guard("sessions", "read", onboard.handleGetSession))
 		r.Patch("/{id}", guard("sessions", "write", onboard.handleUpdateSession))
 		r.Get("/{id}/steps", guard("sessions", "read", onboard.handleGetSessionSteps))
-		r.Post("/{id}/steps", guard("sessions", "write", onboard.handleSaveSessionStep))
-		r.Post("/{id}/review", guard("sessions", "write", onboard.handleReviewSession))
-		r.Post("/{id}/activity", guard("sessions", "write", onboard.handleSessionActivity))
 	})
 
 	r.Route("/applications", func(r chi.Router) {
+		r.Get("/", guard("applications", "read", apps.handleList))
 		r.Post("/", guard("applications", "write", apps.handleCreate))
 		r.Get("/lookup", guard("applications", "read", apps.handleGetByUser))
 		r.Get("/{id}", guard("applications", "read", apps.handleGet))
@@ -145,20 +143,8 @@ func NewRouter(store ComplianceStore, opts ...RouterOption) chi.Router {
 			r.Post("/screenings/{id}/review", guard("aml", "write", aml.handleReview))
 		})
 
-		// Onboarding Applications
-		r.Route("/applications", func(r chi.Router) {
-			r.Get("/", guard("applications", "read", apps.handleList))
-			r.Post("/", guard("applications", "write", apps.handleCreate))
-			r.Get("/lookup", guard("applications", "read", apps.handleGetByUser))
-			r.Get("/{id}", guard("applications", "read", apps.handleGet))
-			r.Post("/{id}/step/1", guard("applications", "write", apps.handleStep1))
-			r.Post("/{id}/step/2", guard("applications", "write", apps.handleStep2))
-			r.Post("/{id}/step/3", guard("applications", "write", apps.handleStep3))
-			r.Post("/{id}/step/4", guard("applications", "write", apps.handleStep4))
-			r.Post("/{id}/step/5", guard("applications", "write", apps.handleStep5))
-			r.Post("/{id}/review", guard("applications", "write", apps.handleReview))
-			r.Get("/{id}/documents", guard("applications", "read", apps.handleGetDocuments))
-		})
+		// Application review (admin-only — self-service CRUD is above)
+		r.Post("/applications/{id}/review", guard("applications", "write", apps.handleReview))
 
 		// Pipelines
 		r.Route("/pipelines", func(r chi.Router) {
@@ -167,15 +153,6 @@ func NewRouter(store ComplianceStore, opts ...RouterOption) chi.Router {
 			r.Get("/{id}", guard("pipelines", "read", onboard.handleGetPipeline))
 			r.Patch("/{id}", guard("pipelines", "write", onboard.handleUpdatePipeline))
 			r.Delete("/{id}", guard("pipelines", "delete", onboard.handleDeletePipeline))
-		})
-
-		// Sessions
-		r.Route("/sessions", func(r chi.Router) {
-			r.Get("/", guard("sessions", "read", onboard.handleListSessions))
-			r.Post("/", guard("sessions", "write", onboard.handleCreateSession))
-			r.Get("/{id}", guard("sessions", "read", onboard.handleGetSession))
-			r.Patch("/{id}", guard("sessions", "write", onboard.handleUpdateSession))
-			r.Get("/{id}/steps", guard("sessions", "read", onboard.handleGetSessionSteps))
 		})
 
 		// Funds
