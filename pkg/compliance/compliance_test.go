@@ -8,31 +8,15 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/luxfi/broker/pkg/admin"
 )
-
-// cachedTestToken holds a valid super_admin JWT generated at test init time.
-// All test helpers use it so that requests pass the admin auth middleware.
-var cachedTestToken string
-
-func init() {
-	as := admin.NewStore("test-secret-for-tests")
-	as.AddAdmin("testadmin", "testpass", "super_admin")
-	tok, err := as.Authenticate("testadmin", "testpass")
-	if err != nil {
-		panic("compliance_test init: " + err.Error())
-	}
-	cachedTestToken = tok
-}
 
 func newTestRouter() (chi.Router, *MemoryStore) {
 	store := NewStore()
-	adminStore := admin.NewStore("test-secret-for-tests")
-	adminStore.AddAdmin("testadmin", "testpass", "super_admin")
-	router := NewRouter(store, adminStore)
+	router := NewRouter(store)
 	return router, store
 }
 
+// doRequest sends a request with gateway-style IAM headers (superadmin role).
 func doRequest(r chi.Router, method, path string, body interface{}) *httptest.ResponseRecorder {
 	var buf bytes.Buffer
 	if body != nil {
@@ -40,7 +24,26 @@ func doRequest(r chi.Router, method, path string, body interface{}) *httptest.Re
 	}
 	req := httptest.NewRequest(method, path, &buf)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+cachedTestToken)
+	req.Header.Set("X-User-Id", "test-user-001")
+	req.Header.Set("X-Org-Id", "liquidity")
+	req.Header.Set("X-User-Email", "testadmin@liquidity.io")
+	req.Header.Set("X-User-Roles", "superadmin")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+// doRequestAs sends a request with a specific role.
+func doRequestAs(r chi.Router, method, path string, body interface{}, userID, role string) *httptest.ResponseRecorder {
+	var buf bytes.Buffer
+	if body != nil {
+		json.NewEncoder(&buf).Encode(body)
+	}
+	req := httptest.NewRequest(method, path, &buf)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", userID)
+	req.Header.Set("X-Org-Id", "liquidity")
+	req.Header.Set("X-User-Roles", role)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	return w
@@ -177,7 +180,7 @@ func TestKYCVerifyInvalidBody(t *testing.T) {
 	// Send a raw invalid JSON body.
 	req := httptest.NewRequest("POST", "/kyc/verify", bytes.NewBufferString("{invalid"))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+cachedTestToken)
+	req.Header.Set("X-User-Id", "test-user-001"); req.Header.Set("X-User-Roles", "superadmin")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
@@ -308,7 +311,7 @@ func TestPipelineCreateInvalidBody(t *testing.T) {
 	r, _ := newTestRouter()
 	req := httptest.NewRequest("POST", "/pipelines/", bytes.NewBufferString("not json"))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+cachedTestToken)
+	req.Header.Set("X-User-Id", "test-user-001"); req.Header.Set("X-User-Roles", "superadmin")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
@@ -2178,8 +2181,8 @@ func TestAMLReview(t *testing.T) {
 		t.Fatalf("expected cleared, got %s", reviewed.Status)
 	}
 	// Reviewer identity is extracted from JWT, not request body.
-	if reviewed.ReviewedBy != "testadmin" {
-		t.Fatalf("expected reviewed_by testadmin (from JWT), got %s", reviewed.ReviewedBy)
+	if reviewed.ReviewedBy != "test-user-001" {
+		t.Fatalf("expected reviewed_by test-user-001 (from gateway), got %s", reviewed.ReviewedBy)
 	}
 }
 
@@ -2218,8 +2221,8 @@ func TestAMLReviewIgnoresBodyReviewedBy(t *testing.T) {
 	if reviewed.ReviewedBy == "spoofed-admin@evil.com" {
 		t.Fatal("SECURITY: reviewed_by accepted from request body instead of JWT context")
 	}
-	if reviewed.ReviewedBy != "testadmin" {
-		t.Fatalf("expected reviewed_by testadmin (from JWT), got %s", reviewed.ReviewedBy)
+	if reviewed.ReviewedBy != "test-user-001" {
+		t.Fatalf("expected reviewed_by test-user-001 (from gateway), got %s", reviewed.ReviewedBy)
 	}
 }
 
@@ -2848,7 +2851,7 @@ func TestSecurityAMLReviewerSpoofingPrevented(t *testing.T) {
 	sc := &AMLScreening{AccountID: "a1", Status: AMLFlagged, Provider: "jube"}
 	store.SaveAMLScreening(sc)
 
-	// Attacker tries to claim review was by "bob" but JWT says "testadmin".
+	// Attacker tries to claim review was by "bob" but JWT says "test-user-001".
 	w := doRequest(r, "POST", "/aml/screenings/"+sc.ID+"/review", map[string]string{
 		"decision":    "blocked",
 		"reviewed_by": "bob@spoofed.com",
@@ -2861,7 +2864,7 @@ func TestSecurityAMLReviewerSpoofingPrevented(t *testing.T) {
 	if reviewed.ReviewedBy == "bob@spoofed.com" {
 		t.Fatal("SECURITY: reviewer identity accepted from request body (spoofable)")
 	}
-	if reviewed.ReviewedBy != "testadmin" {
+	if reviewed.ReviewedBy != "test-user-001" {
 		t.Fatalf("expected reviewer testadmin from JWT, got %s", reviewed.ReviewedBy)
 	}
 }
@@ -2886,7 +2889,7 @@ func TestSecurityApplicationReviewerSpoofingPrevented(t *testing.T) {
 	if reviewed.ReviewedBy == "spoofed-admin@evil.com" {
 		t.Fatal("SECURITY: reviewer identity accepted from request body (spoofable)")
 	}
-	if reviewed.ReviewedBy != "testadmin" {
+	if reviewed.ReviewedBy != "test-user-001" {
 		t.Fatalf("expected reviewer testadmin from JWT, got %s", reviewed.ReviewedBy)
 	}
 }
@@ -2999,45 +3002,36 @@ func TestSecurityApplicationTerminalStatusBlocksSteps(t *testing.T) {
 	}
 }
 
-// HIGH-1: RBAC uses stored permissions, not hardcoded roles.
+// HIGH-1: RBAC uses stored permissions via gateway roles header.
 func TestSecurityRBACUsesStoredPermissions(t *testing.T) {
 	store := NewStore()
 	SeedStore(store)
-	adminStore := admin.NewStore("test-secret-for-tests")
+	router := NewRouter(store)
 
-	// Create admins with roles matching the seeded compliance roles.
-	adminStore.AddAdmin("testadmin", "testpass", "super_admin")
-	adminStore.AddAdmin("dev-user", "devpass", "Developer")
-	adminStore.AddAdmin("agent-user", "agentpass", "Agent")
-
-	router := NewRouter(store, adminStore)
-
-	// Helper to make requests with a specific admin token.
-	makeRequest := func(username, password, method, path string, body interface{}) *httptest.ResponseRecorder {
-		tok, err := adminStore.Authenticate(username, password)
-		if err != nil {
-			t.Fatalf("auth %s: %v", username, err)
-		}
+	// Helper to make requests with a specific role via gateway headers.
+	makeRequest := func(userID, role, method, path string, body interface{}) *httptest.ResponseRecorder {
 		var buf bytes.Buffer
 		if body != nil {
 			json.NewEncoder(&buf).Encode(body)
 		}
 		req := httptest.NewRequest(method, path, &buf)
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set("X-User-Id", userID)
+		req.Header.Set("X-Org-Id", "liquidity")
+		req.Header.Set("X-User-Roles", role)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 		return w
 	}
 
 	// Developer should have read access to KYC.
-	w := makeRequest("dev-user", "devpass", "GET", "/kyc/?user_id=test", nil)
+	w := makeRequest("dev-user", "Developer", "GET", "/kyc/?user_id=test", nil)
 	if w.Code == http.StatusForbidden {
 		t.Fatal("Developer should have kyc:read permission")
 	}
 
 	// Developer should NOT have write access to KYC.
-	w = makeRequest("dev-user", "devpass", "POST", "/kyc/verify", map[string]string{
+	w = makeRequest("dev-user", "Developer", "POST", "/kyc/verify", map[string]string{
 		"user_id": "u1", "provider": "test",
 	})
 	if w.Code != http.StatusForbidden {
@@ -3045,54 +3039,18 @@ func TestSecurityRBACUsesStoredPermissions(t *testing.T) {
 	}
 
 	// Agent should have sessions:write.
-	w = makeRequest("agent-user", "agentpass", "POST", "/sessions/", map[string]string{
+	w = makeRequest("agent-user", "Agent", "POST", "/sessions/", map[string]string{
 		"pipeline_id": "test", "investor_email": "a@b.com",
 	})
-	// Should not be 403 (it may be 400 for missing pipeline, that's fine).
 	if w.Code == http.StatusForbidden {
 		t.Fatal("Agent should have sessions:write permission")
 	}
 
 	// Agent should NOT have funds:write.
-	w = makeRequest("agent-user", "agentpass", "POST", "/funds/", map[string]interface{}{
+	w = makeRequest("agent-user", "Agent", "POST", "/funds/", map[string]interface{}{
 		"name": "Hack Fund", "type": "equity",
 	})
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("SECURITY: Agent should NOT have funds:write, got %d", w.Code)
-	}
-}
-
-// HIGH-3: Rate limiter uses RemoteAddr, not X-Forwarded-For.
-func TestSecurityRateLimiterIgnoresXForwardedFor(t *testing.T) {
-	store := NewStore()
-	adminStore := admin.NewStore("test-secret-for-tests")
-	adminStore.AddAdmin("testadmin", "testpass", "super_admin")
-	router := NewRouter(store, adminStore)
-
-	// Exhaust rate limit with 5 login attempts.
-	for i := 0; i < 5; i++ {
-		req := httptest.NewRequest("POST", "/auth/login", bytes.NewBufferString(`{"username":"bad","password":"bad"}`))
-		req.Header.Set("Content-Type", "application/json")
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-	}
-
-	// 6th attempt should be rate limited.
-	req := httptest.NewRequest("POST", "/auth/login", bytes.NewBufferString(`{"username":"bad","password":"bad"}`))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("expected 429 after 5 attempts, got %d", w.Code)
-	}
-
-	// Attacker tries to bypass by setting X-Forwarded-For — must still be blocked.
-	req = httptest.NewRequest("POST", "/auth/login", bytes.NewBufferString(`{"username":"bad","password":"bad"}`))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Forwarded-For", "1.2.3.4")
-	w = httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-	if w.Code != http.StatusTooManyRequests {
-		t.Fatalf("SECURITY: rate limit bypassed via X-Forwarded-For, got %d", w.Code)
 	}
 }
