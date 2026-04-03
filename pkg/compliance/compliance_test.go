@@ -16,7 +16,7 @@ func newTestRouter() (chi.Router, *MemoryStore) {
 	return router, store
 }
 
-// doRequest sends a request with gateway-style IAM headers (superadmin role).
+// doRequest sends a request with gateway-style IAM headers (built-in admin org).
 func doRequest(r chi.Router, method, path string, body interface{}) *httptest.ResponseRecorder {
 	var buf bytes.Buffer
 	if body != nil {
@@ -27,14 +27,13 @@ func doRequest(r chi.Router, method, path string, body interface{}) *httptest.Re
 	req.Header.Set("X-User-Id", "test-user-001")
 	req.Header.Set("X-Org-Id", "built-in")
 	req.Header.Set("X-User-Email", "testadmin@liquidity.io")
-	req.Header.Set("X-User-Roles", "superadmin")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	return w
 }
 
-// doRequestAs sends a request with a specific role.
-func doRequestAs(r chi.Router, method, path string, body interface{}, userID, role string) *httptest.ResponseRecorder {
+// doRequestAsOrg sends a request as a user in the specified org.
+func doRequestAsOrg(r chi.Router, method, path string, body interface{}, userID, org string) *httptest.ResponseRecorder {
 	var buf bytes.Buffer
 	if body != nil {
 		json.NewEncoder(&buf).Encode(body)
@@ -42,8 +41,7 @@ func doRequestAs(r chi.Router, method, path string, body interface{}, userID, ro
 	req := httptest.NewRequest(method, path, &buf)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-User-Id", userID)
-	req.Header.Set("X-Org-Id", "built-in")
-	req.Header.Set("X-User-Roles", role)
+	req.Header.Set("X-Org-Id", org)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	return w
@@ -180,7 +178,7 @@ func TestKYCVerifyInvalidBody(t *testing.T) {
 	// Send a raw invalid JSON body.
 	req := httptest.NewRequest("POST", "/kyc/verify", bytes.NewBufferString("{invalid"))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-User-Id", "test-user-001"); req.Header.Set("X-User-Roles", "superadmin"); req.Header.Set("X-Org-Id", "built-in")
+	req.Header.Set("X-User-Id", "test-user-001"); req.Header.Set("X-Org-Id", "built-in")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
@@ -311,7 +309,7 @@ func TestPipelineCreateInvalidBody(t *testing.T) {
 	r, _ := newTestRouter()
 	req := httptest.NewRequest("POST", "/pipelines/", bytes.NewBufferString("not json"))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-User-Id", "test-user-001"); req.Header.Set("X-User-Roles", "superadmin"); req.Header.Set("X-Org-Id", "built-in")
+	req.Header.Set("X-User-Id", "test-user-001"); req.Header.Set("X-Org-Id", "built-in")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
@@ -3002,55 +3000,37 @@ func TestSecurityApplicationTerminalStatusBlocksSteps(t *testing.T) {
 	}
 }
 
-// HIGH-1: RBAC uses stored permissions via gateway roles header.
-func TestSecurityRBACUsesStoredPermissions(t *testing.T) {
+// Org-based access: built-in org = full access, other orgs = self-service only.
+func TestSecurityOrgBasedAccess(t *testing.T) {
 	store := NewStore()
 	SeedStore(store)
 	router := NewRouter(store)
 
-	// Helper to make requests with a specific role via gateway headers.
-	makeRequest := func(userID, role, method, path string, body interface{}) *httptest.ResponseRecorder {
-		var buf bytes.Buffer
-		if body != nil {
-			json.NewEncoder(&buf).Encode(body)
-		}
-		req := httptest.NewRequest(method, path, &buf)
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-User-Id", userID)
-		req.Header.Set("X-Org-Id", "built-in")
-		req.Header.Set("X-User-Roles", role)
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-		return w
-	}
-
-	// Developer should have read access to KYC.
-	w := makeRequest("dev-user", "Developer", "GET", "/kyc/?user_id=test", nil)
+	// built-in org should have full access to admin modules (kyc, funds, etc.).
+	w := doRequestAsOrg(router, "GET", "/kyc/?user_id=test", nil, "admin-user", "built-in")
 	if w.Code == http.StatusForbidden {
-		t.Fatal("Developer should have kyc:read permission")
+		t.Fatal("built-in org should have kyc:read access")
 	}
 
-	// Developer should NOT have write access to KYC.
-	w = makeRequest("dev-user", "Developer", "POST", "/kyc/verify", map[string]string{
-		"user_id": "u1", "provider": "test",
-	})
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("SECURITY: Developer should NOT have kyc:write, got %d", w.Code)
-	}
-
-	// Agent should have sessions:write.
-	w = makeRequest("agent-user", "Agent", "POST", "/sessions/", map[string]string{
+	// Non-admin org should access self-service modules (sessions, applications).
+	w = doRequestAsOrg(router, "POST", "/sessions/", map[string]string{
 		"pipeline_id": "test", "investor_email": "a@b.com",
-	})
+	}, "customer-user", "liquidity")
 	if w.Code == http.StatusForbidden {
-		t.Fatal("Agent should have sessions:write permission")
+		t.Fatal("customer org should have sessions:write access")
 	}
 
-	// Agent should NOT have funds:write.
-	w = makeRequest("agent-user", "Agent", "POST", "/funds/", map[string]interface{}{
+	// Non-admin org should NOT access admin-only modules (funds).
+	w = doRequestAsOrg(router, "POST", "/funds/", map[string]interface{}{
 		"name": "Hack Fund", "type": "equity",
-	})
+	}, "customer-user", "liquidity")
 	if w.Code != http.StatusForbidden {
-		t.Fatalf("SECURITY: Agent should NOT have funds:write, got %d", w.Code)
+		t.Fatalf("SECURITY: customer org should NOT access funds, got %d", w.Code)
+	}
+
+	// Non-admin org should NOT access admin-only modules (kyc review).
+	w = doRequestAsOrg(router, "GET", "/kyc/?user_id=test", nil, "customer-user", "liquidity")
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("SECURITY: customer org should NOT access kyc admin, got %d", w.Code)
 	}
 }
