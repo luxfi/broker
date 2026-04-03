@@ -67,13 +67,16 @@ func Middleware(iamEndpoint string) func(http.Handler) http.Handler {
 				return
 			}
 
+			orgID := ClaimStr(claims, "owner")
 			r.Header.Set("X-User-Id", ClaimStr(claims, "sub"))
-			r.Header.Set("X-Org-Id", ClaimStr(claims, "owner"))
+			r.Header.Set("X-Org-Id", orgID)
 			r.Header.Set("X-User-Email", ClaimStr(claims, "email"))
 			if roles := ClaimStr(claims, "roles"); roles != "" {
 				r.Header.Set("X-User-Roles", roles)
 			}
-			if ClaimBool(claims, "isAdmin") {
+			// built-in org users are superadmins. Also check JWT isAdmin claim
+			// (future Casdoor versions may include it via token_fields).
+			if orgID == "built-in" || ClaimBool(claims, "isAdmin") {
 				r.Header.Set("X-User-IsAdmin", "true")
 			}
 			next.ServeHTTP(w, r)
