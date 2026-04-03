@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -35,7 +34,6 @@ type Server struct {
 	sor                   *router.Router
 	riskEng               *risk.Engine
 	auditLog              *audit.Log
-	authStore             *auth.Store
 	adminStore            *admin.Store
 	feed                  *marketdata.Feed
 	stream                *ws.Server
@@ -55,7 +53,6 @@ func NewServer(registry *provider.Registry, listenAddr string) *Server {
 			panic("crypto/rand unavailable: " + err.Error())
 		}
 		jwtSecret = hex.EncodeToString(b)
-		log.Println("WARNING: ADMIN_SECRET not set, using random secret (admin tokens will not survive restart)")
 	}
 
 	s := &Server{
@@ -64,22 +61,10 @@ func NewServer(registry *provider.Registry, listenAddr string) *Server {
 		sor:        router.New(registry),
 		riskEng:    risk.NewEngine(risk.DefaultLimits()),
 		auditLog:   audit.NewLog(),
-		authStore:  auth.NewStore(),
 		adminStore: admin.NewStore(jwtSecret),
 		feed:       marketdata.NewFeed(),
 	}
 	s.stream = ws.NewServer(s.feed)
-
-	// Register API keys from environment
-	if key := os.Getenv("BROKER_API_KEY"); key != "" {
-		s.authStore.Add(&auth.APIKey{
-			Key:         key,
-			Name:        "default",
-			OrgID:       os.Getenv("BROKER_ORG_ID"),
-			Permissions: []string{"admin"},
-			CreatedAt:   time.Now(),
-		})
-	}
 
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)
@@ -89,11 +74,13 @@ func NewServer(registry *provider.Registry, listenAddr string) *Server {
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   corsOriginsFromEnv(),
 		AllowedMethods:   []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-API-Key"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-User-Id", "X-Org-Id", "X-User-Email", "X-IAM-Org"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
-	r.Use(auth.Middleware(s.authStore))
+	// Auth: gateway validates IAM JWT and propagates identity headers.
+	// No internal JWT/API-key validation — one auth path only.
+	r.Use(auth.Middleware())
 
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -312,10 +299,6 @@ func (s *Server) AdminStore() *admin.Store {
 	return s.adminStore
 }
 
-// AuthStore returns the auth store for external configuration.
-func (s *Server) AuthStore() *auth.Store {
-	return s.authStore
-}
 
 // Resolver returns the account resolver for user-to-provider account mapping.
 func (s *Server) Resolver() *accounts.Resolver {

@@ -12,8 +12,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
-	"github.com/luxfi/broker/pkg/admin"
-	"github.com/luxfi/broker/pkg/auth"
 	"github.com/luxfi/compliance/pkg/jube"
 	"github.com/rs/zerolog/log"
 )
@@ -22,13 +20,7 @@ import (
 type RouterOption func(*routerConfig)
 
 type routerConfig struct {
-	authStore  *auth.Store
 	jubeClient *jube.Client
-}
-
-// WithAuthStore adds API key management to the compliance router.
-func WithAuthStore(s *auth.Store) RouterOption {
-	return func(cfg *routerConfig) { cfg.authStore = s }
 }
 
 // WithJubeClient adds the Jube AML sidecar client for live screening.
@@ -42,12 +34,9 @@ func WithJubeClient(c *jube.Client) RouterOption {
 // all routes (except /healthz) require a valid admin JWT and write operations
 // are gated by role-based permissions.
 // Optional RouterOption values add the auth store and Jube client.
-func NewRouter(store ComplianceStore, adminStore *admin.Store, opts ...RouterOption) chi.Router {
+func NewRouter(store ComplianceStore, opts ...RouterOption) chi.Router {
 	if store == nil {
 		store = NewMemoryStore()
-	}
-	if adminStore == nil {
-		panic("compliance router requires non-nil adminStore")
 	}
 
 	var cfg routerConfig
@@ -65,7 +54,7 @@ func NewRouter(store ComplianceStore, adminStore *admin.Store, opts ...RouterOpt
 	txns := &transactionsHandler{store: store}
 	reports := &reportsHandler{}
 	settings := &settingsHandler{store: store}
-	creds := &credentialsHandler{store: store, authStore: cfg.authStore}
+	creds := &credentialsHandler{store: store}
 	billing := &billingHandler{}
 	aml := &amlHandler{store: store, jubeClient: cfg.jubeClient}
 	apps := &applicationHandler{store: store}
@@ -124,13 +113,9 @@ func NewRouter(store ComplianceStore, adminStore *admin.Store, opts ...RouterOpt
 		})
 	})
 
-	// Auth endpoints — no admin JWT required (these issue/verify tokens)
-	r.Post("/auth/login", rateLimitLogin(admin.LoginHandler(adminStore)))
-	r.Get("/auth/verify", admin.VerifyHandler(adminStore))
-
-	// All remaining routes require admin authentication
+	// All routes require IAM authentication via gateway headers.
+	// No internal admin JWT — the gateway is the only auth layer.
 	r.Group(func(r chi.Router) {
-		r.Use(admin.Middleware(adminStore))
 
 		// KYC
 		r.Route("/kyc", func(r chi.Router) {
@@ -205,7 +190,7 @@ func NewRouter(store ComplianceStore, adminStore *admin.Store, opts ...RouterOpt
 		})
 
 		// Roles — GET requires "roles:read" RBAC (HIGH-1).
-		// Mutation (POST/PATCH/DELETE) restricted to super_admin/owner to
+		// Mutation (POST/PATCH/DELETE) restricted to superadmin/owner to
 		// prevent role self-escalation (HIGH-3).
 		r.Route("/roles", func(r chi.Router) {
 			r.Get("/", guard("roles", "read", roles.handleListRoles))
@@ -260,28 +245,28 @@ func NewRouter(store ComplianceStore, adminStore *admin.Store, opts ...RouterOpt
 
 // requireRole returns an http.HandlerFunc that checks if the authenticated admin
 // has the required module+action permission by looking up their role in the compliance
-// store's roles table. The special "super_admin" role retains implicit full access
+// store's roles table. The special "superadmin" role retains implicit full access
 // for bootstrap/recovery scenarios. All other roles are checked against stored
 // permissions (HIGH-1).
 func requireRole(store ComplianceStore, module, action string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		roleName := admin.RoleFromContext(r.Context())
+		roleName := r.Header.Get("X-User-Roles")
 		if roleName == "" {
 			writeError(w, http.StatusForbidden, "no role in token")
 			return
 		}
 
-		// super_admin is an escape hatch for bootstrap/recovery.
+		// superadmin is an escape hatch for bootstrap/recovery.
 		// Always log when this bypass is used for audit trail.
-		if roleName == "super_admin" {
-			user := admin.UserFromContext(r.Context())
+		if roleName == "superadmin" {
+			user := r.Header.Get("X-User-Id")
 			log.Warn().
 				Str("user", user).
 				Str("module", module).
 				Str("action", action).
 				Str("path", r.URL.Path).
 				Str("method", r.Method).
-				Msg("super_admin bypass used")
+				Msg("superadmin bypass used")
 			next(w, r)
 			return
 		}
@@ -309,13 +294,13 @@ func requireRole(store ComplianceStore, module, action string, next http.Handler
 	}
 }
 
-// requireSuperAdmin rejects requests unless the JWT role is "super_admin" or
+// requireSuperAdmin rejects requests unless the JWT role is "superadmin" or
 // "owner". Used for role mutation endpoints to prevent self-escalation (HIGH-3).
 func requireSuperAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		roleName := admin.RoleFromContext(r.Context())
-		if roleName != "super_admin" && roleName != "owner" {
-			writeError(w, http.StatusForbidden, "role mutation requires super_admin or owner role")
+		roleName := r.Header.Get("X-User-Roles")
+		if roleName != "superadmin" && roleName != "owner" {
+			writeError(w, http.StatusForbidden, "role mutation requires superadmin or owner role")
 			return
 		}
 		next(w, r)
