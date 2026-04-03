@@ -1,21 +1,32 @@
 package auth
 
 import (
+	"crypto"
+	"crypto/rsa"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"math/big"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 )
 
-// Middleware returns an HTTP middleware that reads identity from
-// gateway-propagated headers. The Hanzo Gateway validates JWTs via
-// IAM JWKS and sets:
-//
-//   - X-User-Id    (from JWT sub claim)
-//   - X-User-Email (from JWT preferred_username claim)
-//   - X-Org-Id     (from JWT owner claim)
-//
-// Requests without X-User-Id are rejected as unauthenticated.
+// jwksCache caches the RSA public key from IAM JWKS.
+var (
+	jwksMu     sync.RWMutex
+	jwksKey    *rsa.PublicKey
+	jwksExpiry time.Time
+)
+
+// Middleware validates IAM JWTs via JWKS.
+// Accepts gateway-propagated headers (X-User-Id) OR Bearer tokens.
 // /healthz is always public.
-func Middleware() func(http.Handler) http.Handler {
+func Middleware(iamEndpoint string) func(http.Handler) http.Handler {
+	jwksURL := iamEndpoint + "/.well-known/jwks"
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/healthz" {
@@ -23,28 +34,37 @@ func Middleware() func(http.Handler) http.Handler {
 				return
 			}
 
-			userID := r.Header.Get("X-User-Id")
-			if userID == "" {
+			// Gateway-propagated headers take precedence (already validated)
+			if uid := r.Header.Get("X-User-Id"); uid != "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Validate Bearer token via IAM JWKS
+			auth := r.Header.Get("Authorization")
+			if !strings.HasPrefix(auth, "Bearer ") {
 				writeErr(w, http.StatusUnauthorized, "authentication required")
 				return
 			}
 
-			orgID := r.Header.Get("X-Org-Id")
-			email := r.Header.Get("X-User-Email")
+			claims, err := validateJWT(strings.TrimPrefix(auth, "Bearer "), jwksURL)
+			if err != nil {
+				writeErr(w, http.StatusUnauthorized, "invalid token")
+				return
+			}
 
-			// Normalize for downstream handlers.
-			r.Header.Set("X-User-Id", userID)
-			r.Header.Set("X-Org-Id", orgID)
-			r.Header.Set("X-User-Email", email)
+			r.Header.Set("X-User-Id", claimStr(claims, "sub"))
+			r.Header.Set("X-Org-Id", claimStr(claims, "owner"))
+			r.Header.Set("X-User-Email", claimStr(claims, "email"))
+			if claimBool(claims, "isAdmin") {
+				r.Header.Set("X-User-IsAdmin", "true")
+			}
 			next.ServeHTTP(w, r)
 		})
 	}
 }
 
-// RequirePermission checks roles from X-User-Roles (set by Gateway
-// from JWT claims). Admin role grants all permissions. Authenticated
-// users without explicit roles get "read" access.
-// X-User-IsAdmin: true (from IAM JWT isAdmin claim) also grants admin.
+// RequirePermission checks X-User-Roles or X-User-IsAdmin.
 func RequirePermission(perm string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +74,6 @@ func RequirePermission(perm string) func(http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
-			// Default: read is allowed for any authenticated user.
 			if perm == "read" {
 				next.ServeHTTP(w, r)
 				return
@@ -64,11 +83,132 @@ func RequirePermission(perm string) func(http.Handler) http.Handler {
 	}
 }
 
+// validateJWT validates RS256 JWT signature against JWKS and returns claims.
+func validateJWT(tokenStr, jwksURL string) (map[string]interface{}, error) {
+	parts := strings.Split(tokenStr, ".")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("malformed token")
+	}
+
+	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return nil, fmt.Errorf("bad header")
+	}
+	var header struct {
+		Alg string `json:"alg"`
+		Kid string `json:"kid"`
+	}
+	if err := json.Unmarshal(headerBytes, &header); err != nil {
+		return nil, fmt.Errorf("bad header json")
+	}
+	if header.Alg != "RS256" {
+		return nil, fmt.Errorf("unsupported alg: %s", header.Alg)
+	}
+
+	key, err := getJWKSKey(jwksURL, header.Kid)
+	if err != nil {
+		return nil, err
+	}
+
+	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil {
+		return nil, fmt.Errorf("bad signature")
+	}
+
+	digest := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
+	if err := rsa.VerifyPKCS1v15(key, crypto.SHA256, digest[:], sig); err != nil {
+		return nil, fmt.Errorf("signature invalid")
+	}
+
+	claimBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("bad claims")
+	}
+	var claims map[string]interface{}
+	if err := json.Unmarshal(claimBytes, &claims); err != nil {
+		return nil, fmt.Errorf("bad claims json")
+	}
+
+	if exp, ok := claims["exp"].(float64); ok {
+		if time.Now().Unix() > int64(exp) {
+			return nil, fmt.Errorf("expired")
+		}
+	}
+
+	return claims, nil
+}
+
+func getJWKSKey(jwksURL, kid string) (*rsa.PublicKey, error) {
+	jwksMu.RLock()
+	if jwksKey != nil && time.Now().Before(jwksExpiry) {
+		jwksMu.RUnlock()
+		return jwksKey, nil
+	}
+	jwksMu.RUnlock()
+
+	jwksMu.Lock()
+	defer jwksMu.Unlock()
+	if jwksKey != nil && time.Now().Before(jwksExpiry) {
+		return jwksKey, nil
+	}
+
+	resp, err := http.Get(jwksURL)
+	if err != nil {
+		return nil, fmt.Errorf("fetch jwks: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var jwks struct {
+		Keys []struct {
+			Kty string `json:"kty"`
+			Kid string `json:"kid"`
+			N   string `json:"n"`
+			E   string `json:"e"`
+		} `json:"keys"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
+		return nil, fmt.Errorf("decode jwks: %w", err)
+	}
+
+	for _, k := range jwks.Keys {
+		if k.Kty != "RSA" || (kid != "" && k.Kid != kid) {
+			continue
+		}
+		nBytes, err := base64.RawURLEncoding.DecodeString(k.N)
+		if err != nil {
+			continue
+		}
+		eBytes, err := base64.RawURLEncoding.DecodeString(k.E)
+		if err != nil {
+			continue
+		}
+		key := &rsa.PublicKey{N: new(big.Int).SetBytes(nBytes), E: int(new(big.Int).SetBytes(eBytes).Int64())}
+		jwksKey = key
+		jwksExpiry = time.Now().Add(time.Hour)
+		return key, nil
+	}
+	return nil, fmt.Errorf("no key for kid=%s", kid)
+}
+
 func hasRole(roles, role string) bool {
 	for _, r := range strings.Split(roles, ",") {
 		if strings.TrimSpace(r) == role {
 			return true
 		}
+	}
+	return false
+}
+
+func claimStr(claims map[string]interface{}, key string) string {
+	if v, ok := claims[key].(string); ok {
+		return v
+	}
+	return ""
+}
+
+func claimBool(claims map[string]interface{}, key string) bool {
+	if v, ok := claims[key].(bool); ok {
+		return v
 	}
 	return false
 }
