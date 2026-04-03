@@ -29,38 +29,15 @@ var (
 	}
 )
 
-// resolveUserID extracts the user identity from gateway/IAM headers.
-// The gateway (api.hanzo.ai) injects these after OIDC validation.
-// ATS sets X-User-Id directly; gateway may use X-Gateway-User-Id or X-Hanzo-User-Id.
+// resolveUserID extracts the user identity from the auth middleware.
+// Only X-User-Id is trusted — it is set by auth middleware from validated JWT claims.
 func resolveUserID(r *http.Request) string {
-	if uid := r.Header.Get("X-User-Id"); uid != "" {
-		return uid
-	}
-	if uid := r.Header.Get("X-Gateway-User-Id"); uid != "" {
-		return uid
-	}
-	return r.Header.Get("X-Hanzo-User-Id")
+	return r.Header.Get("X-User-Id")
 }
 
 // resolveUserAccounts finds all accounts belonging to a user across all providers.
-// If X-Account-Id is set (e.g. by ATS after looking up the user's Alpaca sub-account),
-// use it directly and skip the expensive ListAccounts call.
-// If no user ID is available, falls back to the first account from the first provider.
+// Accounts are always resolved from the authenticated user — never from request headers.
 func (s *Server) resolveUserAccounts(r *http.Request) ([]resolvedAccount, error) {
-	// Fast path: caller already resolved the account.
-	if acctID := r.Header.Get("X-Account-Id"); acctID != "" {
-		provider := r.Header.Get("X-Account-Provider")
-		if provider == "" {
-			// Default to first registered provider.
-			names := s.registry.List()
-			if len(names) == 0 {
-				return nil, errNoAccounts
-			}
-			provider = names[0]
-		}
-		return []resolvedAccount{{provider: provider, accountID: acctID}}, nil
-	}
-
 	userID := resolveUserID(r)
 	var resolved []resolvedAccount
 

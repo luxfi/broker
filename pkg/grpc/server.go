@@ -14,8 +14,11 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
+	"strings"
 	"time"
 
+	"github.com/luxfi/broker/pkg/auth"
 	"github.com/luxfi/broker/pkg/marketdata"
 	"github.com/luxfi/broker/pkg/provider"
 	"github.com/luxfi/broker/pkg/router"
@@ -25,6 +28,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 )
@@ -42,11 +46,12 @@ type Server struct {
 
 // Config holds gRPC server configuration.
 type Config struct {
-	ListenAddr       string
-	Registry         *provider.Registry
-	Router           *router.Router
-	TWAPScheduler    *router.TWAPScheduler
-	Feed             *marketdata.Feed
+	ListenAddr        string
+	IAMEndpoint       string
+	Registry          *provider.Registry
+	Router            *router.Router
+	TWAPScheduler     *router.TWAPScheduler
+	Feed              *marketdata.Feed
 	ArbitrageDetector *marketdata.ArbitrageDetector
 }
 
@@ -57,8 +62,19 @@ func NewServer(cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("grpc listen: %w", err)
 	}
 
+	iamEndpoint := cfg.IAMEndpoint
+	if iamEndpoint == "" {
+		iamEndpoint = os.Getenv("IAM_ENDPOINT")
+		if iamEndpoint == "" {
+			iamEndpoint = "http://localhost:8000"
+		}
+	}
+
 	grpcSrv := ggrpc.NewServer(
-		ggrpc.UnaryInterceptor(loggingInterceptor),
+		ggrpc.ChainUnaryInterceptor(
+			authInterceptor(iamEndpoint),
+			loggingInterceptor,
+		),
 	)
 
 	s := &Server{
@@ -471,6 +487,47 @@ func twapToResponse(exec *router.TWAPExecution) *TWAPResponse {
 		resp.CompletedAt = exec.CompletedAt.Format(time.RFC3339)
 	}
 	return resp
+}
+
+// authInterceptor validates Bearer tokens from gRPC metadata via IAM JWKS.
+// Health and reflection RPCs are excluded.
+func authInterceptor(iamEndpoint string) ggrpc.UnaryServerInterceptor {
+	jwksURL := iamEndpoint + "/.well-known/jwks"
+
+	return func(ctx context.Context, req interface{}, info *ggrpc.UnaryServerInfo, handler ggrpc.UnaryHandler) (interface{}, error) {
+		// Skip auth for health checks and reflection.
+		if strings.HasPrefix(info.FullMethod, "/grpc.health.v1.") ||
+			strings.HasPrefix(info.FullMethod, "/grpc.reflection.") {
+			return handler(ctx, req)
+		}
+
+		md, ok := metadata.FromIncomingContext(ctx)
+		if !ok {
+			return nil, status.Error(codes.Unauthenticated, "missing metadata")
+		}
+
+		vals := md.Get("authorization")
+		if len(vals) == 0 {
+			return nil, status.Error(codes.Unauthenticated, "authorization required")
+		}
+		token := vals[0]
+		if !strings.HasPrefix(token, "Bearer ") {
+			return nil, status.Error(codes.Unauthenticated, "bearer token required")
+		}
+		token = strings.TrimPrefix(token, "Bearer ")
+
+		claims, err := auth.ValidateJWT(token, jwksURL)
+		if err != nil {
+			return nil, status.Error(codes.Unauthenticated, "invalid token")
+		}
+
+		// Propagate identity via context metadata for downstream handlers.
+		md.Set("x-user-id", auth.ClaimStr(claims, "sub"))
+		md.Set("x-org-id", auth.ClaimStr(claims, "owner"))
+		ctx = metadata.NewIncomingContext(ctx, md)
+
+		return handler(ctx, req)
+	}
 }
 
 func loggingInterceptor(ctx context.Context, req interface{}, info *ggrpc.UnaryServerInfo, handler ggrpc.UnaryHandler) (interface{}, error) {

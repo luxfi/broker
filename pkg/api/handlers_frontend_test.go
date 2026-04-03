@@ -5,12 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/luxfi/broker/pkg/auth"
 	"github.com/luxfi/broker/pkg/provider"
 	"github.com/luxfi/broker/pkg/types"
 )
@@ -124,18 +121,10 @@ func (m *mockProvider) GetCalendar(_ context.Context, _, _ string) ([]*types.Mar
 
 func setupTestServerWithMock(t *testing.T, mp *mockProvider) *httptest.Server {
 	t.Helper()
-	os.Setenv("ADMIN_SECRET", "test-secret")
-	t.Cleanup(func() {
-		os.Unsetenv("ADMIN_SECRET")
-	})
-
+	t.Setenv("IAM_ENDPOINT", testJWKS.server.URL)
 	registry := provider.NewRegistry()
 	registry.Register(mp)
 	srv := NewServer(registry, ":0")
-	srv.AuthStore().Add(&auth.APIKey{
-		Key: testAPIKey, Name: "test", OrgID: "test-org",
-		Permissions: []string{"admin"}, CreatedAt: time.Now(),
-	})
 	return httptest.NewServer(srv.Handler())
 }
 
@@ -377,10 +366,7 @@ func TestFrontendOrdersWithAccount(t *testing.T) {
 	ts := setupTestServerWithMock(t, mp)
 	defer ts.Close()
 
-	req, _ := http.NewRequest("GET", ts.URL+"/v1/exchange/orders", nil)
-	req.Header.Set("Authorization", "Bearer "+testAPIKey)
-	req.Header.Set("X-Gateway-User-Id", "user1")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := authedRequest("GET", ts.URL+"/v1/exchange/orders", nil, "user1")
 	if err != nil {
 		t.Fatalf("GET /v1/exchange/orders: %v", err)
 	}
@@ -425,11 +411,7 @@ func TestFrontendCreateOrderSuccess(t *testing.T) {
 	defer ts.Close()
 
 	body := `{"symbol":"AAPL","qty":"10","side":"buy"}`
-	req, _ := http.NewRequest("POST", ts.URL+"/v1/exchange/orders", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+testAPIKey)
-	req.Header.Set("X-Gateway-User-Id", "user1")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := authedRequest("POST", ts.URL+"/v1/exchange/orders", strings.NewReader(body), "user1")
 	if err != nil {
 		t.Fatalf("POST /v1/exchange/orders: %v", err)
 	}
@@ -500,7 +482,7 @@ func TestFrontendPositionsWithAccount(t *testing.T) {
 	mp := &mockProvider{
 		name: "testprov",
 		accounts: []*types.Account{
-			{ID: "a1", ProviderID: "pa1", Provider: "testprov"},
+			{ID: "a1", ProviderID: "pa1", Provider: "testprov", UserID: testUserID},
 		},
 		portfolio: &types.Portfolio{
 			Cash:           "10000",
@@ -554,10 +536,7 @@ func TestFrontendPortfolioSingleAccount(t *testing.T) {
 	ts := setupTestServerWithMock(t, mp)
 	defer ts.Close()
 
-	req, _ := http.NewRequest("GET", ts.URL+"/v1/exchange/portfolio", nil)
-	req.Header.Set("Authorization", "Bearer "+testAPIKey)
-	req.Header.Set("X-Hanzo-User-Id", "user1")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := authedRequest("GET", ts.URL+"/v1/exchange/portfolio", nil, "user1")
 	if err != nil {
 		t.Fatalf("GET /v1/exchange/portfolio: %v", err)
 	}
@@ -872,22 +851,24 @@ func TestFrontendAssetsFilterAllTypes(t *testing.T) {
 }
 
 func TestResolveUserIDHeaders(t *testing.T) {
-	// X-Gateway-User-Id takes precedence
+	// Only X-User-Id is trusted (set by auth middleware from JWT claims).
 	r, _ := http.NewRequest("GET", "/", nil)
+	r.Header.Set("X-User-Id", "jwt-user")
 	r.Header.Set("X-Gateway-User-Id", "gateway-user")
 	r.Header.Set("X-Hanzo-User-Id", "hanzo-user")
-	if got := resolveUserID(r); got != "gateway-user" {
-		t.Fatalf("expected gateway-user, got %s", got)
+	if got := resolveUserID(r); got != "jwt-user" {
+		t.Fatalf("expected jwt-user, got %s", got)
 	}
 
-	// Falls back to X-Hanzo-User-Id
+	// X-Gateway-User-Id and X-Hanzo-User-Id are ignored.
 	r2, _ := http.NewRequest("GET", "/", nil)
+	r2.Header.Set("X-Gateway-User-Id", "gateway-user")
 	r2.Header.Set("X-Hanzo-User-Id", "hanzo-user")
-	if got := resolveUserID(r2); got != "hanzo-user" {
-		t.Fatalf("expected hanzo-user, got %s", got)
+	if got := resolveUserID(r2); got != "" {
+		t.Fatalf("expected empty (untrusted headers ignored), got %s", got)
 	}
 
-	// No headers returns empty
+	// No headers returns empty.
 	r3, _ := http.NewRequest("GET", "/", nil)
 	if got := resolveUserID(r3); got != "" {
 		t.Fatalf("expected empty, got %s", got)
@@ -919,7 +900,7 @@ func TestFrontendCreateOrderDefaultTypeAndTIF(t *testing.T) {
 	mp := &mockProvider{
 		name: "testprov",
 		accounts: []*types.Account{
-			{ID: "a1", ProviderID: "pa1", Provider: "testprov"},
+			{ID: "a1", ProviderID: "pa1", Provider: "testprov", UserID: testUserID},
 		},
 	}
 	ts := setupTestServerWithMock(t, mp)
@@ -927,10 +908,7 @@ func TestFrontendCreateOrderDefaultTypeAndTIF(t *testing.T) {
 
 	// Only symbol and side — type and time_in_force should default
 	body := `{"symbol":"AAPL","qty":"1","side":"buy"}`
-	req, _ := http.NewRequest("POST", ts.URL+"/v1/exchange/orders", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+testAPIKey)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := authedRequest("POST", ts.URL+"/v1/exchange/orders", strings.NewReader(body), testUserID)
 	if err != nil {
 		t.Fatalf("POST: %v", err)
 	}
@@ -972,24 +950,17 @@ func TestFrontendPortfolioMultipleAccounts(t *testing.T) {
 		},
 	}
 
-	os.Setenv("ADMIN_SECRET", "test-secret")
-	t.Cleanup(func() { os.Unsetenv("ADMIN_SECRET") })
+	t.Setenv("IAM_ENDPOINT", testJWKS.server.URL)
 
 	registry := provider.NewRegistry()
 	registry.Register(mp1)
 	registry.Register(mp2)
 	srv := NewServer(registry, ":0")
-	srv.AuthStore().Add(&auth.APIKey{
-		Key: testAPIKey, Name: "test", OrgID: "test-org",
-		Permissions: []string{"admin"}, CreatedAt: time.Now(),
-	})
 	tsSrv := httptest.NewServer(srv.Handler())
 	defer tsSrv.Close()
 
-	req, _ := http.NewRequest("GET", tsSrv.URL+"/v1/exchange/portfolio", nil)
-	req.Header.Set("Authorization", "Bearer "+testAPIKey)
-	req.Header.Set("X-Gateway-User-Id", "user1")
-	resp, err := http.DefaultClient.Do(req)
+	// Use a JWT with sub=user1 to match the account UserID.
+	resp, err := authedRequest("GET", tsSrv.URL+"/v1/exchange/portfolio", nil, "user1")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
