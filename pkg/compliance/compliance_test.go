@@ -3034,3 +3034,187 @@ func TestSecurityOrgBasedAccess(t *testing.T) {
 		t.Fatalf("SECURITY: customer org should NOT access kyc admin, got %d", w.Code)
 	}
 }
+
+// ==========================================================================
+// Wallet Screen Tests
+// ==========================================================================
+
+func TestWalletScreenCleanAddress(t *testing.T) {
+	r, _ := newTestRouter()
+	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+		"address":   "0x1234567890abcdef1234567890abcdef12345678",
+		"chain":     "ethereum",
+		"direction": "receive",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp walletScreenResponse
+	decodeJSON(t, w, &resp)
+	if resp.Risk != "low" {
+		t.Fatalf("expected risk low, got %s", resp.Risk)
+	}
+	if resp.Sanctioned {
+		t.Fatal("expected sanctioned=false for clean address")
+	}
+	if resp.Source != "ofac" {
+		t.Fatalf("expected source ofac (no jube configured), got %s", resp.Source)
+	}
+}
+
+func TestWalletScreenOFACSanctioned(t *testing.T) {
+	r, _ := newTestRouter()
+
+	// Tornado Cash address (from OFAC SDN list).
+	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+		"address":   "0x8589427373D6D84E98730D7795D8f6f8731FDA16",
+		"chain":     "ethereum",
+		"direction": "send",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp walletScreenResponse
+	decodeJSON(t, w, &resp)
+	if resp.Risk != "blocked" {
+		t.Fatalf("expected risk blocked, got %s", resp.Risk)
+	}
+	if !resp.Sanctioned {
+		t.Fatal("expected sanctioned=true for OFAC address")
+	}
+	if resp.Source != "ofac" {
+		t.Fatalf("expected source ofac, got %s", resp.Source)
+	}
+}
+
+func TestWalletScreenOFACCaseInsensitive(t *testing.T) {
+	r, _ := newTestRouter()
+
+	// Same Tornado Cash address but all lowercase.
+	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+		"address":   "0x8589427373d6d84e98730d7795d8f6f8731fda16",
+		"chain":     "ethereum",
+		"direction": "receive",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp walletScreenResponse
+	decodeJSON(t, w, &resp)
+	if resp.Risk != "blocked" {
+		t.Fatalf("expected risk blocked for lowercase OFAC address, got %s", resp.Risk)
+	}
+	if !resp.Sanctioned {
+		t.Fatal("expected sanctioned=true")
+	}
+}
+
+func TestWalletScreenLazarusGroup(t *testing.T) {
+	r, _ := newTestRouter()
+	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+		"address":   "0x098B716B8Aaf21512996dC57EB0615e2383E2f96",
+		"chain":     "ethereum",
+		"direction": "receive",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp walletScreenResponse
+	decodeJSON(t, w, &resp)
+	if resp.Risk != "blocked" {
+		t.Fatalf("expected risk blocked for Lazarus Group address, got %s", resp.Risk)
+	}
+	if !resp.Sanctioned {
+		t.Fatal("expected sanctioned=true for Lazarus Group")
+	}
+}
+
+func TestWalletScreenMissingAddress(t *testing.T) {
+	r, _ := newTestRouter()
+	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+		"chain": "ethereum",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestWalletScreenMissingChain(t *testing.T) {
+	r, _ := newTestRouter()
+	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+		"address": "0x1234567890abcdef1234567890abcdef12345678",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestWalletScreenInvalidChain(t *testing.T) {
+	r, _ := newTestRouter()
+	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+		"address": "0x1234567890abcdef1234567890abcdef12345678",
+		"chain":   "solana",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestWalletScreenInvalidDirection(t *testing.T) {
+	r, _ := newTestRouter()
+	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+		"address":   "0x1234567890abcdef1234567890abcdef12345678",
+		"chain":     "ethereum",
+		"direction": "bridge",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestWalletScreenDefaultDirection(t *testing.T) {
+	r, _ := newTestRouter()
+	// Omit direction — should default to "receive" and succeed.
+	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+		"address": "0x1234567890abcdef1234567890abcdef12345678",
+		"chain":   "liquidity",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp walletScreenResponse
+	decodeJSON(t, w, &resp)
+	if resp.Risk != "low" {
+		t.Fatalf("expected risk low, got %s", resp.Risk)
+	}
+}
+
+func TestWalletScreenBitcoinChain(t *testing.T) {
+	r, _ := newTestRouter()
+	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+		"address":   "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh",
+		"chain":     "bitcoin",
+		"direction": "send",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp walletScreenResponse
+	decodeJSON(t, w, &resp)
+	if resp.Risk != "low" {
+		t.Fatalf("expected risk low for clean bitcoin address, got %s", resp.Risk)
+	}
+}
+
+func TestWalletScreenAccessibleByAnyOrg(t *testing.T) {
+	r, _ := newTestRouter()
+	// Non-admin org should still access wallet-screen (self-service via kyc module).
+	w := doRequestAsOrg(r, "POST", "/compliance/wallet-screen", map[string]string{
+		"address":   "0x1234567890abcdef1234567890abcdef12345678",
+		"chain":     "ethereum",
+		"direction": "receive",
+	}, "customer-user", "liquidity")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for customer org, got %d: %s", w.Code, w.Body.String())
+	}
+}
