@@ -251,6 +251,13 @@ func NewRouter(store ComplianceStore, opts ...RouterOption) chi.Router {
 func requireRole(store ComplianceStore, module, action string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		roleName := r.Header.Get("X-User-Roles")
+		isAdmin := strings.EqualFold(r.Header.Get("X-User-IsAdmin"), "true")
+
+		// IAM isAdmin claim grants superadmin access
+		if isAdmin && roleName == "" {
+			roleName = "superadmin"
+		}
+
 		if roleName == "" {
 			writeError(w, http.StatusForbidden, "no role in token")
 			return
