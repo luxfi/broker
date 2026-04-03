@@ -19,11 +19,17 @@ type RouterOption func(*routerConfig)
 
 type routerConfig struct {
 	jubeClient *jube.Client
+	scamDB     *ScamDB
 }
 
 // WithJubeClient adds the Jube AML sidecar client for live screening.
 func WithJubeClient(c *jube.Client) RouterOption {
 	return func(cfg *routerConfig) { cfg.jubeClient = c }
+}
+
+// WithScamDB adds the ScamSniffer scam address database for wallet screening.
+func WithScamDB(db *ScamDB) RouterOption {
+	return func(cfg *routerConfig) { cfg.scamDB = db }
 }
 
 // NewRouter creates a chi sub-router with all compliance endpoints.
@@ -54,7 +60,7 @@ func NewRouter(store ComplianceStore, opts ...RouterOption) chi.Router {
 	settings := &settingsHandler{store: store}
 	creds := &credentialsHandler{store: store}
 	billing := &billingHandler{}
-	aml := &amlHandler{store: store, jubeClient: cfg.jubeClient}
+	aml := &amlHandler{store: store, jubeClient: cfg.jubeClient, scamDB: cfg.scamDB}
 	apps := &applicationHandler{store: store}
 
 	// Compliance endpoints are restricted to the admin org (built-in).
