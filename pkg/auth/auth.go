@@ -28,8 +28,6 @@ var untrustedHeaders = []string{
 	"X-User-Id",
 	"X-Org-Id",
 	"X-User-Email",
-	"X-User-Roles",
-	"X-User-IsAdmin",
 	"X-Account-Id",
 	"X-Account-Provider",
 	"X-Gateway-User-Id",
@@ -67,18 +65,9 @@ func Middleware(iamEndpoint string) func(http.Handler) http.Handler {
 				return
 			}
 
-			orgID := ClaimStr(claims, "owner")
 			r.Header.Set("X-User-Id", ClaimStr(claims, "sub"))
-			r.Header.Set("X-Org-Id", orgID)
+			r.Header.Set("X-Org-Id", ClaimStr(claims, "owner"))
 			r.Header.Set("X-User-Email", ClaimStr(claims, "email"))
-			if roles := ClaimStr(claims, "roles"); roles != "" {
-				r.Header.Set("X-User-Roles", roles)
-			}
-			// built-in org users are superadmins. Also check JWT isAdmin claim
-			// (future Casdoor versions may include it via token_fields).
-			if orgID == "built-in" || ClaimBool(claims, "isAdmin") {
-				r.Header.Set("X-User-IsAdmin", "true")
-			}
 			next.ServeHTTP(w, r)
 		})
 	}
@@ -96,25 +85,6 @@ func RequireOrg(allowedOrg string) func(http.Handler) http.Handler {
 				return
 			}
 			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// RequirePermission checks X-User-Roles or X-User-IsAdmin.
-func RequirePermission(perm string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			roles := r.Header.Get("X-User-Roles")
-			isAdmin := strings.EqualFold(r.Header.Get("X-User-IsAdmin"), "true")
-			if isAdmin || HasRole(roles, perm) || HasRole(roles, "admin") {
-				next.ServeHTTP(w, r)
-				return
-			}
-			if perm == "read" {
-				next.ServeHTTP(w, r)
-				return
-			}
-			writeErr(w, http.StatusForbidden, "insufficient permissions")
 		})
 	}
 }
@@ -242,14 +212,6 @@ func ClaimStr(claims map[string]interface{}, key string) string {
 		return v
 	}
 	return ""
-}
-
-// ClaimBool extracts a boolean claim from JWT claims.
-func ClaimBool(claims map[string]interface{}, key string) bool {
-	if v, ok := claims[key].(bool); ok {
-		return v
-	}
-	return false
 }
 
 func writeErr(w http.ResponseWriter, code int, msg string) {
