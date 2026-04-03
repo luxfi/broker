@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -80,6 +81,14 @@ func NewRouter(store ComplianceStore, opts ...RouterOption) chi.Router {
 		})
 	})
 
+	// Compliance endpoints are restricted to the admin org (built-in).
+	// Customer orgs (liquidity, etc.) access the platform via the exchange app,
+	// not the compliance admin API. Configurable via COMPLIANCE_ADMIN_ORG env var.
+	adminOrg := os.Getenv("COMPLIANCE_ADMIN_ORG")
+	if adminOrg == "" {
+		adminOrg = "built-in"
+	}
+
 	// Health check — no auth required
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{
@@ -88,11 +97,36 @@ func NewRouter(store ComplianceStore, opts ...RouterOption) chi.Router {
 		})
 	})
 
-	// All routes require IAM authentication via gateway headers.
-	// No internal admin JWT — the gateway is the only auth layer.
-	r.Group(func(r chi.Router) {
+	// Customer-facing self-service endpoints — any authenticated user, any org.
+	// Customers create their own onboarding sessions and applications.
+	r.Route("/sessions", func(r chi.Router) {
+		r.Get("/", guard("sessions", "read", onboard.handleListSessions))
+		r.Post("/", guard("sessions", "write", onboard.handleCreateSession))
+		r.Get("/{id}", guard("sessions", "read", onboard.handleGetSession))
+		r.Patch("/{id}", guard("sessions", "write", onboard.handleUpdateSession))
+		r.Get("/{id}/steps", guard("sessions", "read", onboard.handleGetSessionSteps))
+		r.Post("/{id}/steps", guard("sessions", "write", onboard.handleSaveSessionStep))
+		r.Post("/{id}/review", guard("sessions", "write", onboard.handleReviewSession))
+		r.Post("/{id}/activity", guard("sessions", "write", onboard.handleSessionActivity))
+	})
 
-		// KYC
+	r.Route("/applications", func(r chi.Router) {
+		r.Post("/", guard("applications", "write", apps.handleCreate))
+		r.Get("/lookup", guard("applications", "read", apps.handleGetByUser))
+		r.Get("/{id}", guard("applications", "read", apps.handleGet))
+		r.Post("/{id}/step/1", guard("applications", "write", apps.handleStep1))
+		r.Post("/{id}/step/2", guard("applications", "write", apps.handleStep2))
+		r.Post("/{id}/step/3", guard("applications", "write", apps.handleStep3))
+		r.Post("/{id}/step/4", guard("applications", "write", apps.handleStep4))
+		r.Post("/{id}/step/5", guard("applications", "write", apps.handleStep5))
+		r.Get("/{id}/documents", guard("applications", "read", apps.handleGetDocuments))
+	})
+
+	// Admin compliance routes — restricted to built-in org (superadmin).
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireOrg(adminOrg))
+
+		// KYC (admin review)
 		r.Route("/kyc", func(r chi.Router) {
 			r.Post("/verify", rateLimitSensitive(guard("kyc", "write", kyc.handleVerify)))
 			r.Get("/", guard("kyc", "read", kyc.handleListByUser))
