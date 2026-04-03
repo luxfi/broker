@@ -21,6 +21,10 @@ var ssnHMACKey []byte
 func init() {
 	key := os.Getenv("SSN_HMAC_KEY")
 	if key == "" {
+		if os.Getenv("BROKER_ENV") != "development" && os.Getenv("BROKER_ENV") != "" {
+			// Fatal: production requires a real HMAC key from KMS.
+			log.Fatal().Msg("SSN_HMAC_KEY is required in non-development environments (source from KMS)")
+		}
 		ssnHMACKey = []byte("test-only-not-for-production")
 		return
 	}
