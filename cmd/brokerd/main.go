@@ -67,15 +67,6 @@ func main() {
 	srv.SetTWAP(twapScheduler)
 	srv.SetArbitrageDetector(arbDetector, arbThresholdBps)
 
-	// --- Admin Users ---
-	adminStore := srv.AdminStore()
-	adminUser := envOr("ADMIN_USERNAME", "admin")
-	adminPass := os.Getenv("ADMIN_PASSWORD")
-	if adminPass != "" {
-		adminStore.AddAdmin(adminUser, adminPass, "super_admin")
-		log.Info().Str("user", adminUser).Msg("Admin user configured")
-	}
-
 	// --- Compliance (KYC, onboarding, funds, eSign, RBAC) ---
 	var complianceStore compliance.ComplianceStore
 	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
@@ -107,6 +98,7 @@ func main() {
 		var err error
 		grpcSrv, err = brokergrpc.NewServer(brokergrpc.Config{
 			ListenAddr:        grpcAddr,
+			IAMEndpoint:       envOr("IAM_ENDPOINT", "http://localhost:8000"),
 			Registry:          registry,
 			Router:            sor,
 			TWAPScheduler:     twapScheduler,
