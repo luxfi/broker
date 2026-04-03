@@ -97,7 +97,7 @@ func main() {
 		compliance.SeedStore(complianceStore)
 		log.Info().Msg("Compliance store seeded with demo data")
 	}
-	srv.Mount("/compliance", compliance.NewRouter(complianceStore, adminStore))
+	srv.Mount("/compliance", compliance.NewRouter(complianceStore))
 	log.Info().Msg("Compliance routes mounted at /compliance")
 
 	// --- gRPC Server (optional) ---
