@@ -12,7 +12,7 @@ import (
 
 func newTestRouter() (chi.Router, *MemoryStore) {
 	store := NewStore()
-	router := NewRouter(store)
+	router := NewRouter(store, WithScamDB(NewScamDB()))
 	return router, store
 }
 
@@ -3057,6 +3057,9 @@ func TestWalletScreenCleanAddress(t *testing.T) {
 	if resp.Sanctioned {
 		t.Fatal("expected sanctioned=false for clean address")
 	}
+	if resp.Scam {
+		t.Fatal("expected scam=false for clean address")
+	}
 	if resp.Source != "ofac" {
 		t.Fatalf("expected source ofac (no jube configured), got %s", resp.Source)
 	}
@@ -3216,5 +3219,153 @@ func TestWalletScreenAccessibleByAnyOrg(t *testing.T) {
 	}, "customer-user", "liquidity")
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200 for customer org, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// ==========================================================================
+// ScamSniffer Wallet Screen Tests
+// ==========================================================================
+
+func TestWalletScreenScamAddress(t *testing.T) {
+	r, _ := newTestRouter()
+	// Top scam address from ScamSniffer database (492 phishing domains).
+	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+		"address":   "0xc75269b342c1b7f4cbb82e80a7986878ac0f545b",
+		"chain":     "ethereum",
+		"direction": "receive",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp walletScreenResponse
+	decodeJSON(t, w, &resp)
+	if resp.Risk != "high" {
+		t.Fatalf("expected risk high for scam address, got %s", resp.Risk)
+	}
+	if !resp.Scam {
+		t.Fatal("expected scam=true for ScamSniffer address")
+	}
+	if resp.Sanctioned {
+		t.Fatal("expected sanctioned=false for scam (non-OFAC) address")
+	}
+	if resp.Source != "scamsniffer" {
+		t.Fatalf("expected source scamsniffer, got %s", resp.Source)
+	}
+}
+
+func TestWalletScreenScamCaseInsensitive(t *testing.T) {
+	r, _ := newTestRouter()
+	// Mixed-case version of scam address.
+	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+		"address":   "0xC75269B342C1B7F4CBB82E80A7986878AC0F545B",
+		"chain":     "ethereum",
+		"direction": "send",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp walletScreenResponse
+	decodeJSON(t, w, &resp)
+	if !resp.Scam {
+		t.Fatal("expected scam=true for uppercase ScamSniffer address")
+	}
+	if resp.Risk != "high" {
+		t.Fatalf("expected risk high, got %s", resp.Risk)
+	}
+}
+
+func TestWalletScreenCleanNotScam(t *testing.T) {
+	r, _ := newTestRouter()
+	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+		"address":   "0xdead000000000000000000000000000000000000",
+		"chain":     "liquidity",
+		"direction": "receive",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp walletScreenResponse
+	decodeJSON(t, w, &resp)
+	if resp.Scam {
+		t.Fatal("expected scam=false for clean address")
+	}
+	if resp.Sanctioned {
+		t.Fatal("expected sanctioned=false for clean address")
+	}
+	if resp.Risk != "low" {
+		t.Fatalf("expected risk low, got %s", resp.Risk)
+	}
+}
+
+func TestWalletScreenResponseIncludesBothFields(t *testing.T) {
+	r, _ := newTestRouter()
+	// Clean address — verify response JSON has both sanctioned and scam fields.
+	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+		"address":   "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"chain":     "bitcoin",
+		"direction": "receive",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var raw map[string]interface{}
+	decodeJSON(t, w, &raw)
+	if _, ok := raw["sanctioned"]; !ok {
+		t.Fatal("response missing 'sanctioned' field")
+	}
+	if _, ok := raw["scam"]; !ok {
+		t.Fatal("response missing 'scam' field")
+	}
+}
+
+func TestWalletScreenOFACTakesPrecedenceOverScam(t *testing.T) {
+	r, _ := newTestRouter()
+	// OFAC address should return blocked/sanctioned even if it were also in scam DB.
+	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+		"address":   "0x8589427373D6D84E98730D7795D8f6f8731FDA16",
+		"chain":     "ethereum",
+		"direction": "send",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp walletScreenResponse
+	decodeJSON(t, w, &resp)
+	if resp.Risk != "blocked" {
+		t.Fatalf("expected risk blocked (OFAC takes precedence), got %s", resp.Risk)
+	}
+	if !resp.Sanctioned {
+		t.Fatal("expected sanctioned=true")
+	}
+	if resp.Source != "ofac" {
+		t.Fatalf("expected source ofac, got %s", resp.Source)
+	}
+}
+
+func TestScamDBCheck(t *testing.T) {
+	db := NewScamDB()
+	// Known scam address.
+	isScam, source := db.Check("0xc75269b342c1b7f4cbb82e80a7986878ac0f545b")
+	if !isScam {
+		t.Fatal("expected isScam=true for known scam address")
+	}
+	if source != "scamsniffer" {
+		t.Fatalf("expected source scamsniffer, got %s", source)
+	}
+
+	// Clean address.
+	isScam, source = db.Check("0x0000000000000000000000000000000000000001")
+	if isScam {
+		t.Fatal("expected isScam=false for clean address")
+	}
+	if source != "" {
+		t.Fatalf("expected empty source for clean address, got %s", source)
+	}
+}
+
+func TestScamDBCount(t *testing.T) {
+	db := NewScamDB()
+	if db.Count() < 100 {
+		t.Fatalf("expected at least 100 default addresses, got %d", db.Count())
 	}
 }
