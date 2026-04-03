@@ -89,7 +89,7 @@ func main() {
 		log.Info().Msg("Compliance store seeded with demo data")
 	}
 	scamDB := compliance.NewScamDB()
-	srv.Mount("/compliance", compliance.NewRouter(complianceStore, compliance.WithScamDB(scamDB)))
+	srv.Mount("/compliance", compliance.NewRouter(complianceStore, compliance.WithScamDB(scamDB), compliance.WithRegistry(registry)))
 	log.Info().Msg("Compliance routes mounted at /compliance")
 
 	// --- gRPC Server (optional) ---

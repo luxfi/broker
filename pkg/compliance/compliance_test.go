@@ -2,12 +2,16 @@ package compliance
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/luxfi/broker/pkg/provider"
+	"github.com/luxfi/broker/pkg/types"
 )
 
 func newTestRouter() (chi.Router, *MemoryStore) {
@@ -3367,5 +3371,179 @@ func TestScamDBCount(t *testing.T) {
 	db := NewScamDB()
 	if db.Count() < 100 {
 		t.Fatalf("expected at least 100 default addresses, got %d", db.Count())
+	}
+}
+
+// ==========================================================================
+// Alpaca Provisioning on Approval
+// ==========================================================================
+
+// mockAlpacaProvider implements provider.Provider for testing account provisioning.
+type mockAlpacaProvider struct {
+	created chan *types.CreateAccountRequest
+}
+
+func (m *mockAlpacaProvider) Name() string { return "alpaca" }
+func (m *mockAlpacaProvider) CreateAccount(_ context.Context, req *types.CreateAccountRequest) (*types.Account, error) {
+	m.created <- req
+	return &types.Account{ID: "mock-alpaca-acct-001", Provider: "alpaca"}, nil
+}
+func (m *mockAlpacaProvider) GetAccount(context.Context, string) (*types.Account, error) {
+	return nil, nil
+}
+func (m *mockAlpacaProvider) ListAccounts(context.Context) ([]*types.Account, error) {
+	return nil, nil
+}
+func (m *mockAlpacaProvider) GetPortfolio(context.Context, string) (*types.Portfolio, error) {
+	return nil, nil
+}
+func (m *mockAlpacaProvider) CreateOrder(context.Context, string, *types.CreateOrderRequest) (*types.Order, error) {
+	return nil, nil
+}
+func (m *mockAlpacaProvider) ListOrders(context.Context, string) ([]*types.Order, error) {
+	return nil, nil
+}
+func (m *mockAlpacaProvider) GetOrder(context.Context, string, string) (*types.Order, error) {
+	return nil, nil
+}
+func (m *mockAlpacaProvider) CancelOrder(context.Context, string, string) error { return nil }
+func (m *mockAlpacaProvider) CreateTransfer(context.Context, string, *types.CreateTransferRequest) (*types.Transfer, error) {
+	return nil, nil
+}
+func (m *mockAlpacaProvider) ListTransfers(context.Context, string) ([]*types.Transfer, error) {
+	return nil, nil
+}
+func (m *mockAlpacaProvider) CreateBankRelationship(context.Context, string, string, string, string, string) (*types.BankRelationship, error) {
+	return nil, nil
+}
+func (m *mockAlpacaProvider) ListBankRelationships(context.Context, string) ([]*types.BankRelationship, error) {
+	return nil, nil
+}
+func (m *mockAlpacaProvider) ListAssets(context.Context, string) ([]*types.Asset, error) {
+	return nil, nil
+}
+func (m *mockAlpacaProvider) GetAsset(context.Context, string) (*types.Asset, error) {
+	return nil, nil
+}
+func (m *mockAlpacaProvider) GetSnapshot(context.Context, string) (*types.MarketSnapshot, error) {
+	return nil, nil
+}
+func (m *mockAlpacaProvider) GetSnapshots(context.Context, []string) (map[string]*types.MarketSnapshot, error) {
+	return nil, nil
+}
+func (m *mockAlpacaProvider) GetBars(context.Context, string, string, string, string, int) ([]*types.Bar, error) {
+	return nil, nil
+}
+func (m *mockAlpacaProvider) GetLatestTrades(context.Context, []string) (map[string]*types.Trade, error) {
+	return nil, nil
+}
+func (m *mockAlpacaProvider) GetLatestQuotes(context.Context, []string) (map[string]*types.Quote, error) {
+	return nil, nil
+}
+func (m *mockAlpacaProvider) GetClock(context.Context) (*types.MarketClock, error) {
+	return nil, nil
+}
+func (m *mockAlpacaProvider) GetCalendar(context.Context, string, string) ([]*types.MarketCalendarDay, error) {
+	return nil, nil
+}
+
+func TestApplicationApprovalProvisionsAlpacaAccount(t *testing.T) {
+	mock := &mockAlpacaProvider{created: make(chan *types.CreateAccountRequest, 1)}
+	reg := provider.NewRegistry()
+	reg.Register(mock)
+
+	store := NewStore()
+	router := NewRouter(store, WithScamDB(NewScamDB()), WithRegistry(reg))
+
+	app := &Application{
+		UserID:       "u-prov",
+		Email:        "john@example.com",
+		FirstName:    "John",
+		LastName:     "Doe",
+		Phone:        "5551234567",
+		DateOfBirth:  "1990-01-15",
+		AddressLine1: "123 Main St",
+		City:         "New York",
+		State:        "NY",
+		ZipCode:      "10001",
+		Country:      "USA",
+		Status:       AppSubmitted,
+		Steps:        newApplicationSteps(),
+	}
+	store.SaveApplication(app)
+
+	w := doRequest(router, "POST", "/applications/"+app.ID+"/review", map[string]string{
+		"decision": "approved",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var reviewed Application
+	decodeJSON(t, w, &reviewed)
+	if reviewed.Status != AppApproved {
+		t.Fatalf("expected approved, got %s", reviewed.Status)
+	}
+
+	// Wait for async provisioning goroutine (with timeout).
+	select {
+	case req := <-mock.created:
+		if req.Identity.GivenName != "John" {
+			t.Fatalf("expected GivenName John, got %s", req.Identity.GivenName)
+		}
+		if req.Identity.FamilyName != "Doe" {
+			t.Fatalf("expected FamilyName Doe, got %s", req.Identity.FamilyName)
+		}
+		if req.Contact.Email != "john@example.com" {
+			t.Fatalf("expected email john@example.com, got %s", req.Contact.Email)
+		}
+		if req.Contact.City != "New York" {
+			t.Fatalf("expected city New York, got %s", req.Contact.City)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for Alpaca account provisioning")
+	}
+
+	// Verify the AlpacaAccountID was saved back to the application.
+	// Give the goroutine a moment to complete the save after CreateAccount returns.
+	time.Sleep(100 * time.Millisecond)
+	saved, err := store.GetApplicationByUser("u-prov")
+	if err != nil {
+		t.Fatalf("failed to fetch application: %v", err)
+	}
+	if saved.AlpacaAccountID != "mock-alpaca-acct-001" {
+		t.Fatalf("expected AlpacaAccountID mock-alpaca-acct-001, got %q", saved.AlpacaAccountID)
+	}
+}
+
+func TestApplicationRejectionDoesNotProvision(t *testing.T) {
+	mock := &mockAlpacaProvider{created: make(chan *types.CreateAccountRequest, 1)}
+	reg := provider.NewRegistry()
+	reg.Register(mock)
+
+	store := NewStore()
+	router := NewRouter(store, WithScamDB(NewScamDB()), WithRegistry(reg))
+
+	app := &Application{
+		UserID: "u-rej",
+		Email:  "reject@example.com",
+		Status: AppSubmitted,
+		Steps:  newApplicationSteps(),
+	}
+	store.SaveApplication(app)
+
+	w := doRequest(router, "POST", "/applications/"+app.ID+"/review", map[string]string{
+		"decision": "rejected",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	// Should NOT trigger provisioning.
+	select {
+	case <-mock.created:
+		t.Fatal("Alpaca account provisioned on rejection - should not happen")
+	case <-time.After(200 * time.Millisecond):
+		// Expected: no provisioning on rejection.
 	}
 }

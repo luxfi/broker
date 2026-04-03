@@ -1,6 +1,7 @@
 package compliance
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/luxfi/broker/pkg/provider"
+	"github.com/luxfi/broker/pkg/types"
 	"github.com/luxfi/compliance/pkg/onboarding"
 	"github.com/rs/zerolog/log"
 )
@@ -33,7 +36,8 @@ func init() {
 
 // applicationHandler manages the 5-step investor onboarding flow.
 type applicationHandler struct {
-	store ComplianceStore
+	store    ComplianceStore
+	registry *provider.Registry
 }
 
 // newApplicationSteps delegates to the compliance library's canonical step definitions.
@@ -483,7 +487,66 @@ func (h *applicationHandler) handleReview(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+
+	// On approval, provision Alpaca brokerage account asynchronously.
+	if app.Status == AppApproved && h.registry != nil {
+		go h.provisionAlpacaAccount(app)
+	}
+
 	writeJSON(w, http.StatusOK, app)
+}
+
+// provisionAlpacaAccount creates an Alpaca brokerage account for an approved application.
+func (h *applicationHandler) provisionAlpacaAccount(app *Application) {
+	alpaca, err := h.registry.Get("alpaca")
+	if err != nil {
+		log.Error().Err(err).Str("app", app.ID).Msg("no alpaca provider for provisioning")
+		return
+	}
+
+	street := []string{}
+	if app.AddressLine1 != "" {
+		street = append(street, app.AddressLine1)
+	}
+	if app.AddressLine2 != "" {
+		street = append(street, app.AddressLine2)
+	}
+
+	country := app.Country
+	if country == "" {
+		country = "USA"
+	}
+
+	acctReq := &types.CreateAccountRequest{
+		Identity: &types.Identity{
+			GivenName:    app.FirstName,
+			FamilyName:   app.LastName,
+			DateOfBirth:  app.DateOfBirth,
+			CountryOfTax: country,
+		},
+		Contact: &types.Contact{
+			Email:      app.Email,
+			Phone:      app.Phone,
+			Street:     street,
+			City:       app.City,
+			State:      app.State,
+			PostalCode: app.ZipCode,
+			Country:    country,
+		},
+	}
+
+	acct, err := alpaca.CreateAccount(context.Background(), acctReq)
+	if err != nil {
+		log.Error().Err(err).Str("app", app.ID).Msg("alpaca account creation failed")
+		return
+	}
+
+	app.AlpacaAccountID = acct.ID
+	if err := h.store.SaveApplication(app); err != nil {
+		log.Error().Err(err).Str("app", app.ID).Str("alpaca_id", acct.ID).Msg("failed to save alpaca account ID")
+		return
+	}
+	log.Info().Str("app", app.ID).Str("alpaca_id", acct.ID).Msg("alpaca account provisioned")
 }
 
 // handleGetDocuments lists documents for an application.

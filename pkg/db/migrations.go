@@ -230,6 +230,10 @@ var migrations = []migration{
 			CREATE INDEX IF NOT EXISTS idx_applications_email ON applications(email);
 			CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status)`,
 	},
+	{
+		name: "018_add_alpaca_account_id",
+		sql:  `ALTER TABLE applications ADD COLUMN IF NOT EXISTS alpaca_account_id TEXT NOT NULL DEFAULT ''`,
+	},
 }
 
 // RunMigrations creates the schema_migrations tracking table and runs all
