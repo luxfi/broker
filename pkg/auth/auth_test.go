@@ -12,7 +12,7 @@ func okHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func TestMiddlewareHealthzSkipsAuth(t *testing.T) {
-	handler := Middleware()(http.HandlerFunc(okHandler))
+	handler := Middleware("http://localhost:9999")(http.HandlerFunc(okHandler))
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
@@ -29,7 +29,7 @@ func TestMiddlewareAcceptsGatewayHeaders(t *testing.T) {
 		gotEmail = r.Header.Get("X-User-Email")
 		w.WriteHeader(http.StatusOK)
 	})
-	handler := Middleware()(inner)
+	handler := Middleware("http://localhost:9999")(inner)
 	req := httptest.NewRequest(http.MethodGet, "/v1/test", nil)
 	req.Header.Set("X-User-Id", "user-123")
 	req.Header.Set("X-Org-Id", "org-456")
@@ -51,7 +51,7 @@ func TestMiddlewareAcceptsGatewayHeaders(t *testing.T) {
 }
 
 func TestMiddlewareRejectsNoHeaders(t *testing.T) {
-	handler := Middleware()(http.HandlerFunc(okHandler))
+	handler := Middleware("http://localhost:9999")(http.HandlerFunc(okHandler))
 	req := httptest.NewRequest(http.MethodGet, "/v1/test", nil)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
@@ -61,7 +61,7 @@ func TestMiddlewareRejectsNoHeaders(t *testing.T) {
 }
 
 func TestMiddlewareIgnoresBearerToken(t *testing.T) {
-	handler := Middleware()(http.HandlerFunc(okHandler))
+	handler := Middleware("http://localhost:9999")(http.HandlerFunc(okHandler))
 	req := httptest.NewRequest(http.MethodGet, "/v1/test", nil)
 	req.Header.Set("Authorization", "Bearer some-jwt")
 	rr := httptest.NewRecorder()
