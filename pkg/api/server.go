@@ -78,9 +78,12 @@ func NewServer(registry *provider.Registry, listenAddr string) *Server {
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
-	// Auth: gateway validates IAM JWT and propagates identity headers.
-	// No internal JWT/API-key validation — one auth path only.
-	r.Use(auth.Middleware())
+	// Auth: validate IAM JWT via JWKS. One auth path: IAM only.
+	iamEndpoint := os.Getenv("IAM_ENDPOINT")
+	if iamEndpoint == "" {
+		iamEndpoint = "http://localhost:8000"
+	}
+	r.Use(auth.Middleware(iamEndpoint))
 
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]interface{}{
