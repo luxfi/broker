@@ -14,6 +14,7 @@ import (
 type amlHandler struct {
 	store      ComplianceStore
 	jubeClient *jube.Client
+	scamDB     *ScamDB
 }
 
 // handleScreen runs an AML screening for an account via the Jube sidecar.
@@ -171,7 +172,8 @@ type walletScreenResponse struct {
 	Address    string `json:"address"`
 	Risk       string `json:"risk"`       // low, medium, high, blocked
 	Sanctioned bool   `json:"sanctioned"`
-	Source     string `json:"source"`     // ofac, jube
+	Scam       bool   `json:"scam"`
+	Source     string `json:"source"`     // ofac, scamsniffer, jube
 }
 
 // handleWalletScreen checks a crypto wallet address against OFAC SDN and Jube.
@@ -224,7 +226,24 @@ func (h *amlHandler) handleWalletScreen(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// 2. Check via Jube for real-time risk scoring.
+	// 2. Check ScamSniffer database (instant, local).
+	if h.scamDB != nil {
+		if isScam, source := h.scamDB.Check(req.Address); isScam {
+			resp.Risk = "high"
+			resp.Scam = true
+			resp.Source = source
+
+			log.Warn().
+				Str("address", req.Address).
+				Str("chain", req.Chain).
+				Msg("aml: scam wallet detected via ScamSniffer")
+
+			writeJSON(w, http.StatusOK, resp)
+			return
+		}
+	}
+
+	// 3. Check via Jube for real-time risk scoring.
 	if h.jubeClient != nil {
 		txReq := jube.TransactionRequest{
 			EntityAnalysisModelID: 1,
