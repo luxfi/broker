@@ -6,14 +6,12 @@ import (
 	"net/http"
 	"os"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/luxfi/broker/pkg/auth"
 	"github.com/luxfi/compliance/pkg/jube"
-	"github.com/rs/zerolog/log"
 )
 
 // RouterOption configures optional dependencies for the compliance router.
@@ -59,9 +57,18 @@ func NewRouter(store ComplianceStore, opts ...RouterOption) chi.Router {
 	aml := &amlHandler{store: store, jubeClient: cfg.jubeClient}
 	apps := &applicationHandler{store: store}
 
-	// guard wraps a handler with RBAC using the stored role/permission system.
+	// Compliance endpoints are restricted to the admin org (built-in).
+	// Customer orgs (liquidity, etc.) access the platform via the exchange app,
+	// not the compliance admin API. Configurable via COMPLIANCE_ADMIN_ORG env var.
+	adminOrg := os.Getenv("COMPLIANCE_ADMIN_ORG")
+	if adminOrg == "" {
+		adminOrg = "built-in"
+	}
+
+	// guard wraps a handler with org-based access control.
+	// built-in org = full access, any other org = self-service modules only.
 	guard := func(module, action string, h http.HandlerFunc) http.HandlerFunc {
-		return requireRole(store, module, action, h)
+		return requireOrgAccess(adminOrg, module, h)
 	}
 
 	r := chi.NewRouter()
@@ -80,14 +87,6 @@ func NewRouter(store ComplianceStore, opts ...RouterOption) chi.Router {
 			next.ServeHTTP(w, r)
 		})
 	})
-
-	// Compliance endpoints are restricted to the admin org (built-in).
-	// Customer orgs (liquidity, etc.) access the platform via the exchange app,
-	// not the compliance admin API. Configurable via COMPLIANCE_ADMIN_ORG env var.
-	adminOrg := os.Getenv("COMPLIANCE_ADMIN_ORG")
-	if adminOrg == "" {
-		adminOrg = "built-in"
-	}
 
 	// Health check — no auth required
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -175,15 +174,13 @@ func NewRouter(store ComplianceStore, opts ...RouterOption) chi.Router {
 			r.Post("/templates", guard("esign", "write", esign.handleCreateTemplate))
 		})
 
-		// Roles — GET requires "roles:read" RBAC (HIGH-1).
-		// Mutation (POST/PATCH/DELETE) restricted to superadmin/owner to
-		// prevent role self-escalation (HIGH-3).
+		// Roles — all role management restricted to built-in org via RequireOrg above.
 		r.Route("/roles", func(r chi.Router) {
 			r.Get("/", guard("roles", "read", roles.handleListRoles))
-			r.Post("/", requireSuperAdmin(roles.handleCreateRole))
+			r.Post("/", guard("roles", "write", roles.handleCreateRole))
 			r.Get("/{id}", guard("roles", "read", roles.handleGetRole))
-			r.Patch("/{id}", requireSuperAdmin(roles.handleUpdateRole))
-			r.Delete("/{id}", requireSuperAdmin(roles.handleDeleteRole))
+			r.Patch("/{id}", guard("roles", "write", roles.handleUpdateRole))
+			r.Delete("/{id}", guard("roles", "delete", roles.handleDeleteRole))
 		})
 
 		// Modules (for permission matrix)
@@ -229,85 +226,32 @@ func NewRouter(store ComplianceStore, opts ...RouterOption) chi.Router {
 	return r
 }
 
-// requireRole returns an http.HandlerFunc that checks if the authenticated user
-// has the required module+action permission by looking up their role(s) in the
-// compliance store's roles table. X-User-Roles may contain comma-separated roles.
-// The special "superadmin" role retains implicit full access for bootstrap/recovery.
-func requireRole(store ComplianceStore, module, action string, next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		rolesHeader := r.Header.Get("X-User-Roles")
-		isAdmin := strings.EqualFold(r.Header.Get("X-User-IsAdmin"), "true")
-
-		// IAM isAdmin claim grants superadmin access
-		if isAdmin && rolesHeader == "" {
-			rolesHeader = "superadmin"
-		}
-
-		// Authenticated users with no explicit role get default access to
-		// self-service modules (sessions, applications, kyc). This allows
-		// new users to complete onboarding without pre-assigned roles.
-		if rolesHeader == "" {
-			selfServiceModules := map[string]bool{
-				"sessions": true, "applications": true, "kyc": true,
-			}
-			if selfServiceModules[module] {
-				next(w, r)
-				return
-			}
-			writeError(w, http.StatusForbidden, "no role in token")
-			return
-		}
-
-		// Check each role in the comma-separated list.
-		for _, roleName := range strings.Split(rolesHeader, ",") {
-			roleName = strings.TrimSpace(roleName)
-			if roleName == "" {
-				continue
-			}
-
-			// superadmin is an escape hatch for bootstrap/recovery.
-			if roleName == "superadmin" {
-				user := r.Header.Get("X-User-Id")
-				log.Warn().
-					Str("user", user).
-					Str("module", module).
-					Str("action", action).
-					Str("path", r.URL.Path).
-					Str("method", r.Method).
-					Msg("superadmin bypass used")
-				next(w, r)
-				return
-			}
-
-			// Look up the role's permissions from the store.
-			role, err := store.GetRoleByName(roleName)
-			if err != nil {
-				continue
-			}
-
-			for _, perm := range role.Permissions {
-				if perm.Module == module && (perm.Action == action || perm.Action == "admin") {
-					next(w, r)
-					return
-				}
-			}
-		}
-
-		writeError(w, http.StatusForbidden, "insufficient permissions for "+module+":"+action)
-	}
+// selfServiceModules are modules accessible to any authenticated user regardless
+// of org. Users in non-admin orgs can only access these modules.
+var selfServiceModules = map[string]bool{
+	"sessions": true, "applications": true, "kyc": true,
 }
 
-// requireSuperAdmin rejects requests unless the JWT contains "superadmin" or
-// "owner" in the comma-separated role list. Used for role mutation endpoints
-// to prevent self-escalation (HIGH-3).
-func requireSuperAdmin(next http.HandlerFunc) http.HandlerFunc {
+// requireOrgAccess checks X-Org-Id to determine access level.
+// If the org matches adminOrg (typically "built-in"), full access is granted.
+// Any other org only gets access to self-service modules.
+func requireOrgAccess(adminOrg, module string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rolesHeader := r.Header.Get("X-User-Roles")
-		if auth.HasRole(rolesHeader, "superadmin") || auth.HasRole(rolesHeader, "owner") {
+		org := r.Header.Get("X-Org-Id")
+
+		// Admin org has full access to all modules.
+		if org == adminOrg {
 			next(w, r)
 			return
 		}
-		writeError(w, http.StatusForbidden, "role mutation requires superadmin or owner role")
+
+		// Non-admin orgs can only access self-service modules.
+		if selfServiceModules[module] {
+			next(w, r)
+			return
+		}
+
+		writeError(w, http.StatusForbidden, "access restricted to "+adminOrg+" org")
 	}
 }
 

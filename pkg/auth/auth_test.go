@@ -29,8 +29,6 @@ func TestMiddlewareStripsInjectedHeaders(t *testing.T) {
 	req.Header.Set("X-User-Id", "injected-user")
 	req.Header.Set("X-Org-Id", "injected-org")
 	req.Header.Set("X-User-Email", "injected@example.com")
-	req.Header.Set("X-User-Roles", "superadmin")
-	req.Header.Set("X-User-IsAdmin", "true")
 	req.Header.Set("X-Account-Id", "injected-acct")
 	req.Header.Set("X-Gateway-User-Id", "injected-gw")
 	req.Header.Set("X-Hanzo-User-Id", "injected-hanzo")
@@ -85,53 +83,21 @@ func TestMiddlewareRejectsInvalidBearerToken(t *testing.T) {
 	}
 }
 
-func TestRequirePermissionGranted(t *testing.T) {
-	handler := RequirePermission("trade")(http.HandlerFunc(okHandler))
-	req := httptest.NewRequest(http.MethodPost, "/v1/orders", nil)
-	req.Header.Set("X-User-Roles", "trade,read")
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-}
-
-func TestRequirePermissionAdmin(t *testing.T) {
-	handler := RequirePermission("trade")(http.HandlerFunc(okHandler))
-	req := httptest.NewRequest(http.MethodPost, "/v1/orders", nil)
-	req.Header.Set("X-User-Roles", "admin")
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-}
-
-func TestRequirePermissionIsAdmin(t *testing.T) {
-	handler := RequirePermission("trade")(http.HandlerFunc(okHandler))
-	req := httptest.NewRequest(http.MethodPost, "/v1/orders", nil)
-	req.Header.Set("X-User-IsAdmin", "true")
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 for isAdmin, got %d", rr.Code)
-	}
-}
-
-func TestRequirePermissionReadDefault(t *testing.T) {
-	handler := RequirePermission("read")(http.HandlerFunc(okHandler))
+func TestRequireOrgAllowed(t *testing.T) {
+	handler := RequireOrg("built-in")(http.HandlerFunc(okHandler))
 	req := httptest.NewRequest(http.MethodGet, "/v1/test", nil)
+	req.Header.Set("X-Org-Id", "built-in")
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200 for read, got %d", rr.Code)
+		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 }
 
-func TestRequirePermissionDenied(t *testing.T) {
-	handler := RequirePermission("trade")(http.HandlerFunc(okHandler))
-	req := httptest.NewRequest(http.MethodPost, "/v1/orders", nil)
-	req.Header.Set("X-User-Roles", "read")
+func TestRequireOrgDenied(t *testing.T) {
+	handler := RequireOrg("built-in")(http.HandlerFunc(okHandler))
+	req := httptest.NewRequest(http.MethodGet, "/v1/test", nil)
+	req.Header.Set("X-Org-Id", "liquidity")
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusForbidden {
