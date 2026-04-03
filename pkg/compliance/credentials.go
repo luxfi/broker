@@ -5,16 +5,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
-	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/luxfi/broker/pkg/auth"
 )
 
-// credentialsHandler manages API keys visible to compliance admins.
+// credentialsHandler manages API credential records for audit visibility.
 type credentialsHandler struct {
-	store     ComplianceStore
-	authStore *auth.Store
+	store ComplianceStore
 }
 
 func (h *credentialsHandler) handleListCredentials(w http.ResponseWriter, r *http.Request) {
@@ -45,18 +42,6 @@ func (h *credentialsHandler) handleCreateCredential(w http.ResponseWriter, r *ht
 		return
 	}
 	fullKey := hex.EncodeToString(keyBytes)
-
-	// Register in the auth store for actual validation.
-	if h.authStore != nil {
-		h.authStore.Add(&auth.APIKey{
-			Key:         fullKey,
-			Name:        req.Name,
-			OrgID:       "compliance",
-			Permissions: req.Permissions,
-			RateLimit:   60,
-			CreatedAt:   time.Now().UTC(),
-		})
-	}
 
 	// Save a credential record (with key prefix only) in the compliance store.
 	cred := &Credential{
