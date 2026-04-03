@@ -191,6 +191,45 @@ var migrations = []migration{
 			CREATE INDEX IF NOT EXISTS idx_audit_events_timestamp ON audit_events(timestamp);
 			CREATE INDEX IF NOT EXISTS idx_audit_events_actor ON audit_events(actor)`,
 	},
+	{
+		name: "016_create_applications",
+		sql: `CREATE TABLE IF NOT EXISTS applications (
+			id            TEXT PRIMARY KEY,
+			user_id       TEXT NOT NULL DEFAULT '',
+			email         TEXT NOT NULL DEFAULT '',
+			first_name    TEXT NOT NULL DEFAULT '',
+			last_name     TEXT NOT NULL DEFAULT '',
+			phone         TEXT NOT NULL DEFAULT '',
+			date_of_birth TEXT NOT NULL DEFAULT '',
+			ssn_hash      TEXT NOT NULL DEFAULT '',
+			ssn_last4     TEXT NOT NULL DEFAULT '',
+			address_line1 TEXT NOT NULL DEFAULT '',
+			address_line2 TEXT NOT NULL DEFAULT '',
+			city          TEXT NOT NULL DEFAULT '',
+			state         TEXT NOT NULL DEFAULT '',
+			zip_code      TEXT NOT NULL DEFAULT '',
+			country       TEXT NOT NULL DEFAULT '',
+			status        TEXT NOT NULL DEFAULT 'draft',
+			current_step  INTEGER NOT NULL DEFAULT 1,
+			kyc_status    TEXT NOT NULL DEFAULT 'pending',
+			aml_status    TEXT NOT NULL DEFAULT 'pending',
+			steps         JSONB DEFAULT '[]',
+			documents     JSONB DEFAULT '[]',
+			risk_level    TEXT NOT NULL DEFAULT '',
+			risk_score    REAL NOT NULL DEFAULT 0,
+			submitted_at  TIMESTAMPTZ,
+			reviewed_by   TEXT NOT NULL DEFAULT '',
+			reviewed_at   TIMESTAMPTZ,
+			created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
+	},
+	{
+		name: "017_application_indexes",
+		sql: `CREATE INDEX IF NOT EXISTS idx_applications_user_id ON applications(user_id);
+			CREATE INDEX IF NOT EXISTS idx_applications_email ON applications(email);
+			CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status)`,
+	},
 }
 
 // RunMigrations creates the schema_migrations tracking table and runs all
