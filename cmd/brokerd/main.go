@@ -88,7 +88,8 @@ func main() {
 		compliance.SeedStore(complianceStore)
 		log.Info().Msg("Compliance store seeded with demo data")
 	}
-	srv.Mount("/compliance", compliance.NewRouter(complianceStore))
+	scamDB := compliance.NewScamDB()
+	srv.Mount("/compliance", compliance.NewRouter(complianceStore, compliance.WithScamDB(scamDB)))
 	log.Info().Msg("Compliance routes mounted at /compliance")
 
 	// --- gRPC Server (optional) ---
@@ -114,6 +115,8 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	scamDB.StartBackgroundRefresh(ctx)
 
 	errCh := make(chan error, 2)
 	go func() {
