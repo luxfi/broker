@@ -2,8 +2,6 @@ package api
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -16,7 +14,6 @@ import (
 	"github.com/go-chi/cors"
 
 	"github.com/luxfi/broker/pkg/accounts"
-	"github.com/luxfi/broker/pkg/admin"
 	"github.com/luxfi/broker/pkg/audit"
 	"github.com/luxfi/broker/pkg/auth"
 	"github.com/luxfi/broker/pkg/funding"
@@ -29,42 +26,36 @@ import (
 )
 
 type Server struct {
-	registry              *provider.Registry
-	resolver              *accounts.Resolver
-	sor                   *router.Router
-	riskEng               *risk.Engine
-	auditLog              *audit.Log
-	adminStore            *admin.Store
-	feed                  *marketdata.Feed
-	stream                *ws.Server
-	funding               *funding.Service
-	twap                  *router.TWAPScheduler
-	arbDetector           *marketdata.ArbitrageDetector
+	registry                *provider.Registry
+	resolver                *accounts.Resolver
+	sor                     *router.Router
+	riskEng                 *risk.Engine
+	auditLog                *audit.Log
+	feed                    *marketdata.Feed
+	stream                  *ws.Server
+	funding                 *funding.Service
+	twap                    *router.TWAPScheduler
+	arbDetector             *marketdata.ArbitrageDetector
 	arbDetectorThresholdBps float64
-	router                chi.Router
-	server                *http.Server
+	router                  chi.Router
+	server                  *http.Server
 }
 
 func NewServer(registry *provider.Registry, listenAddr string) *Server {
-	jwtSecret := os.Getenv("ADMIN_SECRET")
-	if jwtSecret == "" {
-		b := make([]byte, 32)
-		if _, err := rand.Read(b); err != nil {
-			panic("crypto/rand unavailable: " + err.Error())
-		}
-		jwtSecret = hex.EncodeToString(b)
-	}
-
 	s := &Server{
-		registry:   registry,
-		resolver:   accounts.NewResolver(),
-		sor:        router.New(registry),
-		riskEng:    risk.NewEngine(risk.DefaultLimits()),
-		auditLog:   audit.NewLog(),
-		adminStore: admin.NewStore(jwtSecret),
-		feed:       marketdata.NewFeed(),
+		registry: registry,
+		resolver: accounts.NewResolver(),
+		sor:      router.New(registry),
+		riskEng:  risk.NewEngine(risk.DefaultLimits()),
+		auditLog: audit.NewLog(),
+		feed:     marketdata.NewFeed(),
 	}
 	s.stream = ws.NewServer(s.feed)
+
+	iamEndpoint := os.Getenv("IAM_ENDPOINT")
+	if iamEndpoint == "" {
+		iamEndpoint = "http://localhost:8000"
+	}
 
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)
@@ -78,21 +69,21 @@ func NewServer(registry *provider.Registry, listenAddr string) *Server {
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
-	// Auth: validate IAM JWT via JWKS. One auth path: IAM only.
-	iamEndpoint := os.Getenv("IAM_ENDPOINT")
-	if iamEndpoint == "" {
-		iamEndpoint = "http://localhost:8000"
-	}
-	r.Use(auth.Middleware(iamEndpoint))
 
+	// Public routes — no auth. Webhook handlers validate processor signatures.
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"status":    "ok",
 			"providers": registry.List(),
 		})
 	})
+	r.Post("/v1/fund/webhook/{processor}", s.handleFundingWebhook)
 
-	r.Route("/v1", func(r chi.Router) {
+	// All remaining routes require IAM JWT auth.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.Middleware(iamEndpoint))
+
+		r.Route("/v1", func(r chi.Router) {
 		r.Get("/providers", s.handleListProviders)
 		r.Get("/providers/capabilities", s.handleGetCapabilities)
 
@@ -159,10 +150,10 @@ func NewServer(registry *provider.Registry, listenAddr string) *Server {
 		r.Get("/audit/export", s.handleAuditExport)
 
 		// Funding (deposit/withdraw via payment processors)
+		// Note: /v1/fund/webhook/{processor} is registered before auth middleware.
 		r.Route("/fund", func(r chi.Router) {
 			r.Post("/deposit", s.handleDeposit)
 			r.Post("/withdraw", s.handleWithdraw)
-			r.Post("/webhook/{processor}", s.handleFundingWebhook)
 			r.Get("/processors", s.handleListProcessors)
 		})
 
@@ -251,6 +242,7 @@ func NewServer(registry *provider.Registry, listenAddr string) *Server {
 			})
 		})
 	})
+	}) // end auth group
 
 	s.router = r
 	s.server = &http.Server{
@@ -296,12 +288,6 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) Mount(pattern string, handler http.Handler) {
 	s.router.Mount(pattern, handler)
 }
-
-// AdminStore returns the admin store for external configuration.
-func (s *Server) AdminStore() *admin.Store {
-	return s.adminStore
-}
-
 
 // Resolver returns the account resolver for user-to-provider account mapping.
 func (s *Server) Resolver() *accounts.Resolver {

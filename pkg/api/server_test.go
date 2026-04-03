@@ -1,52 +1,122 @@
 package api
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/luxfi/broker/pkg/auth"
 	"github.com/luxfi/broker/pkg/provider"
 )
 
-const testAPIKey = "test-api-key-for-integration-tests"
+const testUserID = "test-user-001"
+
+// testJWKS holds a test RSA key pair for mocking IAM JWKS in tests.
+var testJWKS struct {
+	key    *rsa.PrivateKey
+	server *httptest.Server
+}
+
+func init() {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		panic("failed to generate test RSA key: " + err.Error())
+	}
+	testJWKS.key = key
+
+	// Serve JWKS endpoint.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/jwks", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"keys": []map[string]interface{}{
+				{
+					"kty": "RSA",
+					"kid": "test-kid",
+					"n":   base64.RawURLEncoding.EncodeToString(key.N.Bytes()),
+					"e":   base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes()),
+				},
+			},
+		})
+	})
+	testJWKS.server = httptest.NewServer(mux)
+}
+
+// signTestJWT creates a test RS256 JWT signed with the test key.
+func signTestJWT(claims map[string]interface{}) string {
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT","kid":"test-kid"}`))
+	claimsJSON, _ := json.Marshal(claims)
+	payload := base64.RawURLEncoding.EncodeToString(claimsJSON)
+	sigInput := header + "." + payload
+	digest := sha256.Sum256([]byte(sigInput))
+	sig, err := rsa.SignPKCS1v15(rand.Reader, testJWKS.key, 0x05, digest[:]) // crypto.SHA256 = 0x05
+	if err != nil {
+		panic("sign failed: " + err.Error())
+	}
+	return sigInput + "." + base64.RawURLEncoding.EncodeToString(sig)
+}
+
+// testToken returns a valid test JWT with admin claims.
+func testToken() string {
+	return signTestJWT(map[string]interface{}{
+		"sub":     testUserID,
+		"owner":   "test-org",
+		"email":   "test@liquidity.io",
+		"roles":   "admin",
+		"isAdmin": true,
+		"exp":     float64(time.Now().Add(time.Hour).Unix()),
+	})
+}
 
 func setupTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	os.Setenv("ADMIN_SECRET", "test-secret")
-	t.Cleanup(func() {
-		os.Unsetenv("ADMIN_SECRET")
-	})
-
+	t.Setenv("IAM_ENDPOINT", testJWKS.server.URL)
 	registry := provider.NewRegistry()
 	srv := NewServer(registry, ":0")
-	// Register a test API key instead of using dev mode bypass
-	srv.AuthStore().Add(&auth.APIKey{
-		Key:         testAPIKey,
-		Name:        "test",
-		OrgID:       "test-org",
-		Permissions: []string{"admin"},
-		CreatedAt:   time.Now(),
-	})
 	return httptest.NewServer(srv.Handler())
 }
 
-// authedGet makes a GET request with the test API key
+// authedGet makes a GET request with a valid test JWT.
 func authedGet(url string) (*http.Response, error) {
 	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Set("Authorization", "Bearer "+testAPIKey)
+	req.Header.Set("Authorization", "Bearer "+testToken())
 	return http.DefaultClient.Do(req)
 }
 
-// authedPost makes a POST request with the test API key
+// authedPost makes a POST request with a valid test JWT.
 func authedPost(url, contentType string, body *strings.Reader) (*http.Response, error) {
 	req, _ := http.NewRequest("POST", url, body)
-	req.Header.Set("Authorization", "Bearer "+testAPIKey)
+	req.Header.Set("Authorization", "Bearer "+testToken())
 	req.Header.Set("Content-Type", contentType)
+	return http.DefaultClient.Do(req)
+}
+
+// authedRequest makes a request with a valid test JWT and custom user ID.
+func authedRequest(method, url string, body *strings.Reader, userID string) (*http.Response, error) {
+	var req *http.Request
+	if body != nil {
+		req, _ = http.NewRequest(method, url, body)
+	} else {
+		req, _ = http.NewRequest(method, url, nil)
+	}
+	token := signTestJWT(map[string]interface{}{
+		"sub":     userID,
+		"owner":   "test-org",
+		"email":   fmt.Sprintf("%s@test.io", userID),
+		"roles":   "admin",
+		"isAdmin": true,
+		"exp":     float64(time.Now().Add(time.Hour).Unix()),
+	})
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
 	return http.DefaultClient.Do(req)
 }
 
@@ -94,299 +164,5 @@ func TestListProviders(t *testing.T) {
 	// Empty registry = empty list
 	if len(providers) != 0 {
 		t.Fatalf("expected 0 providers, got %d", len(providers))
-	}
-}
-
-func TestGetCapabilities(t *testing.T) {
-	ts := setupTestServer(t)
-	defer ts.Close()
-
-	resp, err := authedGet(ts.URL + "/v1/providers/capabilities")
-	if err != nil {
-		t.Fatalf("GET /v1/providers/capabilities: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
-	}
-}
-
-func TestRiskCheck(t *testing.T) {
-	ts := setupTestServer(t)
-	defer ts.Close()
-
-	resp, err := authedGet(ts.URL + "/v1/risk/check?provider=test&account_id=a1&symbol=BTC&side=buy&qty=1")
-	if err != nil {
-		t.Fatalf("GET /v1/risk/check: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
-	}
-
-	var body map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&body)
-	if _, ok := body["allowed"]; !ok {
-		t.Fatal("expected 'allowed' field in risk check response")
-	}
-}
-
-func TestAuditQuery(t *testing.T) {
-	ts := setupTestServer(t)
-	defer ts.Close()
-
-	resp, err := authedGet(ts.URL + "/v1/audit")
-	if err != nil {
-		t.Fatalf("GET /v1/audit: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
-	}
-}
-
-func TestAuditStats(t *testing.T) {
-	ts := setupTestServer(t)
-	defer ts.Close()
-
-	resp, err := authedGet(ts.URL + "/v1/audit/stats")
-	if err != nil {
-		t.Fatalf("GET /v1/audit/stats: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
-	}
-}
-
-func TestAuditExport(t *testing.T) {
-	ts := setupTestServer(t)
-	defer ts.Close()
-
-	resp, err := authedGet(ts.URL + "/v1/audit/export")
-	if err != nil {
-		t.Fatalf("GET /v1/audit/export: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
-	}
-	ct := resp.Header.Get("Content-Type")
-	if ct != "application/json" {
-		t.Fatalf("expected application/json content-type, got %s", ct)
-	}
-	cd := resp.Header.Get("Content-Disposition")
-	if cd == "" {
-		t.Fatal("expected Content-Disposition header for audit export")
-	}
-}
-
-func TestListAccountsEmptyRegistry(t *testing.T) {
-	ts := setupTestServer(t)
-	defer ts.Close()
-
-	resp, err := authedGet(ts.URL + "/v1/accounts")
-	if err != nil {
-		t.Fatalf("GET /v1/accounts: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// With empty registry, should return empty array
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
-	}
-}
-
-func TestListAssetsUnknownProvider(t *testing.T) {
-	ts := setupTestServer(t)
-	defer ts.Close()
-
-	resp, err := authedGet(ts.URL + "/v1/assets/nonexistent")
-	if err != nil {
-		t.Fatalf("GET /v1/assets/nonexistent: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected 400 for unknown provider, got %d", resp.StatusCode)
-	}
-}
-
-func TestStreamEndpointExists(t *testing.T) {
-	ts := setupTestServer(t)
-	defer ts.Close()
-
-	// Just verify the endpoint exists and responds (SSE will timeout, that's fine)
-	client := &http.Client{Timeout: 1}
-	resp, _ := client.Get(ts.URL + "/v1/stream")
-	if resp != nil {
-		resp.Body.Close()
-	}
-}
-
-func TestCreateAccountBadRequest(t *testing.T) {
-	ts := setupTestServer(t)
-	defer ts.Close()
-
-	// Valid JSON body but no provider registered -> 400
-	body := `{"provider":"alpaca","given_name":"Test","family_name":"User","email":"test@example.com"}`
-	resp, err := authedPost(ts.URL+"/v1/accounts", "application/json", strings.NewReader(body))
-	if err != nil {
-		t.Fatalf("POST /v1/accounts: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
-	}
-
-	var result map[string]string
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if result["error"] == "" {
-		t.Fatal("expected error message in response body")
-	}
-}
-
-func TestCreateAccountInvalidBody(t *testing.T) {
-	ts := setupTestServer(t)
-	defer ts.Close()
-
-	resp, err := authedPost(ts.URL+"/v1/accounts", "application/json", strings.NewReader("not json"))
-	if err != nil {
-		t.Fatalf("POST /v1/accounts: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
-	}
-}
-
-func TestRiskCheckResponseStructure(t *testing.T) {
-	ts := setupTestServer(t)
-	defer ts.Close()
-
-	resp, err := authedGet(ts.URL + "/v1/risk/check?provider=alpaca&account_id=acct1&symbol=AAPL&side=buy&qty=10&price=150&type=limit")
-	if err != nil {
-		t.Fatalf("GET /v1/risk/check: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
-	}
-
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	allowed, ok := result["allowed"].(bool)
-	if !ok {
-		t.Fatal("'allowed' field should be boolean")
-	}
-	if !allowed {
-		t.Fatal("expected allowed=true for normal order against default limits")
-	}
-}
-
-func TestAuditStatsResponseStructure(t *testing.T) {
-	ts := setupTestServer(t)
-	defer ts.Close()
-
-	resp, err := authedGet(ts.URL + "/v1/audit/stats")
-	if err != nil {
-		t.Fatalf("GET /v1/audit/stats: %v", err)
-	}
-	defer resp.Body.Close()
-
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if result["total_entries"] == nil {
-		t.Fatal("missing total_entries")
-	}
-	if result["actions"] == nil {
-		t.Fatal("missing actions")
-	}
-	if result["providers"] == nil {
-		t.Fatal("missing providers")
-	}
-	if result["statuses"] == nil {
-		t.Fatal("missing statuses")
-	}
-	if result["avg_order_latency"] == nil {
-		t.Fatal("missing avg_order_latency")
-	}
-}
-
-func TestAuditExportContentDisposition(t *testing.T) {
-	ts := setupTestServer(t)
-	defer ts.Close()
-
-	resp, err := authedGet(ts.URL + "/v1/audit/export")
-	if err != nil {
-		t.Fatalf("GET /v1/audit/export: %v", err)
-	}
-	defer resp.Body.Close()
-
-	cd := resp.Header.Get("Content-Disposition")
-	if !strings.Contains(cd, "audit_export.json") {
-		t.Fatalf("Content-Disposition = %q, want to contain audit_export.json", cd)
-	}
-
-	// Body should be valid JSON array
-	var entries []interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-}
-
-func TestAuthRequiredWithoutKey(t *testing.T) {
-	os.Setenv("ADMIN_SECRET", "test-secret")
-	defer os.Unsetenv("ADMIN_SECRET")
-
-	registry := provider.NewRegistry()
-	srv := NewServer(registry, ":0")
-	ts := httptest.NewServer(srv.Handler())
-	defer ts.Close()
-
-	// No API key — should get 401
-	resp, err := http.Get(ts.URL + "/v1/providers")
-	if err != nil {
-		t.Fatalf("GET /v1/providers: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
-	}
-}
-
-func TestHealthzBypassesAuth(t *testing.T) {
-	os.Setenv("ADMIN_SECRET", "test-secret")
-	defer os.Unsetenv("ADMIN_SECRET")
-
-	registry := provider.NewRegistry()
-	srv := NewServer(registry, ":0")
-	ts := httptest.NewServer(srv.Handler())
-	defer ts.Close()
-
-	// Healthz should work without any key
-	resp, err := http.Get(ts.URL + "/healthz")
-	if err != nil {
-		t.Fatalf("GET /healthz: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
 }

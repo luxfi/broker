@@ -4,14 +4,13 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
-	"os"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/cors"
+	"github.com/luxfi/broker/pkg/auth"
 	"github.com/luxfi/compliance/pkg/jube"
 	"github.com/rs/zerolog/log"
 )
@@ -66,31 +65,7 @@ func NewRouter(store ComplianceStore, opts ...RouterOption) chi.Router {
 
 	r := chi.NewRouter()
 
-	// CORS — explicit production origins only. No wildcards to prevent
-	// subdomain takeover attacks (MEDIUM-2). Localhost origins gated behind
-	// environment check (LOW-2).
-	// CORS origins from env (comma-separated) or defaults
-	corsOrigins := []string{
-		"https://lux.exchange",
-		"https://admin.lux.exchange",
-	}
-	if extra := os.Getenv("CORS_ALLOWED_ORIGINS"); extra != "" {
-		for _, o := range strings.Split(extra, ",") {
-			if trimmed := strings.TrimSpace(o); trimmed != "" {
-				corsOrigins = append(corsOrigins, trimmed)
-			}
-		}
-	}
-	if os.Getenv("BROKER_ENV") != "production" {
-		corsOrigins = append(corsOrigins, "http://localhost:3000", "http://localhost:3100")
-	}
-	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins: corsOrigins,
-		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
-		AllowCredentials: true,
-		MaxAge:           300,
-	}))
+	// CORS is handled by the root router — no duplicate handler here.
 
 	// Request body size limit — 1MB max to prevent abuse.
 	r.Use(maxBodySize(1 << 20))
@@ -243,57 +218,57 @@ func NewRouter(store ComplianceStore, opts ...RouterOption) chi.Router {
 	return r
 }
 
-// requireRole returns an http.HandlerFunc that checks if the authenticated admin
-// has the required module+action permission by looking up their role in the compliance
-// store's roles table. The special "superadmin" role retains implicit full access
-// for bootstrap/recovery scenarios. All other roles are checked against stored
-// permissions (HIGH-1).
+// requireRole returns an http.HandlerFunc that checks if the authenticated user
+// has the required module+action permission by looking up their role(s) in the
+// compliance store's roles table. X-User-Roles may contain comma-separated roles.
+// The special "superadmin" role retains implicit full access for bootstrap/recovery.
 func requireRole(store ComplianceStore, module, action string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		roleName := r.Header.Get("X-User-Roles")
+		rolesHeader := r.Header.Get("X-User-Roles")
 		isAdmin := strings.EqualFold(r.Header.Get("X-User-IsAdmin"), "true")
 
 		// IAM isAdmin claim grants superadmin access
-		if isAdmin && roleName == "" {
-			roleName = "superadmin"
+		if isAdmin && rolesHeader == "" {
+			rolesHeader = "superadmin"
 		}
 
-		if roleName == "" {
+		if rolesHeader == "" {
 			writeError(w, http.StatusForbidden, "no role in token")
 			return
 		}
 
-		// superadmin is an escape hatch for bootstrap/recovery.
-		// Always log when this bypass is used for audit trail.
-		if roleName == "superadmin" {
-			user := r.Header.Get("X-User-Id")
-			log.Warn().
-				Str("user", user).
-				Str("module", module).
-				Str("action", action).
-				Str("path", r.URL.Path).
-				Str("method", r.Method).
-				Msg("superadmin bypass used")
-			next(w, r)
-			return
-		}
+		// Check each role in the comma-separated list.
+		for _, roleName := range strings.Split(rolesHeader, ",") {
+			roleName = strings.TrimSpace(roleName)
+			if roleName == "" {
+				continue
+			}
 
-		// Look up the role's permissions from the store.
-		role, err := store.GetRoleByName(roleName)
-		if err != nil {
-			writeError(w, http.StatusForbidden, "unknown role: "+roleName)
-			return
-		}
-
-		for _, perm := range role.Permissions {
-			if perm.Module == module && perm.Action == action {
+			// superadmin is an escape hatch for bootstrap/recovery.
+			if roleName == "superadmin" {
+				user := r.Header.Get("X-User-Id")
+				log.Warn().
+					Str("user", user).
+					Str("module", module).
+					Str("action", action).
+					Str("path", r.URL.Path).
+					Str("method", r.Method).
+					Msg("superadmin bypass used")
 				next(w, r)
 				return
 			}
-			// "admin" action on a module implies all other actions.
-			if perm.Module == module && perm.Action == "admin" {
-				next(w, r)
-				return
+
+			// Look up the role's permissions from the store.
+			role, err := store.GetRoleByName(roleName)
+			if err != nil {
+				continue
+			}
+
+			for _, perm := range role.Permissions {
+				if perm.Module == module && (perm.Action == action || perm.Action == "admin") {
+					next(w, r)
+					return
+				}
 			}
 		}
 
@@ -301,16 +276,17 @@ func requireRole(store ComplianceStore, module, action string, next http.Handler
 	}
 }
 
-// requireSuperAdmin rejects requests unless the JWT role is "superadmin" or
-// "owner". Used for role mutation endpoints to prevent self-escalation (HIGH-3).
+// requireSuperAdmin rejects requests unless the JWT contains "superadmin" or
+// "owner" in the comma-separated role list. Used for role mutation endpoints
+// to prevent self-escalation (HIGH-3).
 func requireSuperAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		roleName := r.Header.Get("X-User-Roles")
-		if roleName != "superadmin" && roleName != "owner" {
-			writeError(w, http.StatusForbidden, "role mutation requires superadmin or owner role")
+		rolesHeader := r.Header.Get("X-User-Roles")
+		if auth.HasRole(rolesHeader, "superadmin") || auth.HasRole(rolesHeader, "owner") {
+			next(w, r)
 			return
 		}
-		next(w, r)
+		writeError(w, http.StatusForbidden, "role mutation requires superadmin or owner role")
 	}
 }
 

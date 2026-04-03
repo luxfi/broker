@@ -21,21 +21,35 @@ var (
 	jwksExpiry time.Time
 )
 
+// untrustedHeaders are identity headers that must be stripped at the
+// start of every request to prevent injection via direct pod access.
+// The auth middleware re-sets them from validated JWT claims.
+var untrustedHeaders = []string{
+	"X-User-Id",
+	"X-Org-Id",
+	"X-User-Email",
+	"X-User-Roles",
+	"X-User-IsAdmin",
+	"X-Account-Id",
+	"X-Account-Provider",
+	"X-Gateway-User-Id",
+	"X-Hanzo-User-Id",
+}
+
 // Middleware validates IAM JWTs via JWKS.
-// Accepts gateway-propagated headers (X-User-Id) OR Bearer tokens.
+// All identity headers are stripped first, then re-set from validated claims.
 // /healthz is always public.
 func Middleware(iamEndpoint string) func(http.Handler) http.Handler {
 	jwksURL := iamEndpoint + "/.well-known/jwks"
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/healthz" {
-				next.ServeHTTP(w, r)
-				return
+			// Strip all identity headers unconditionally to prevent injection.
+			for _, h := range untrustedHeaders {
+				r.Header.Del(h)
 			}
 
-			// Gateway-propagated headers take precedence (already validated)
-			if uid := r.Header.Get("X-User-Id"); uid != "" {
+			if r.URL.Path == "/healthz" {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -47,16 +61,19 @@ func Middleware(iamEndpoint string) func(http.Handler) http.Handler {
 				return
 			}
 
-			claims, err := validateJWT(strings.TrimPrefix(auth, "Bearer "), jwksURL)
+			claims, err := ValidateJWT(strings.TrimPrefix(auth, "Bearer "), jwksURL)
 			if err != nil {
 				writeErr(w, http.StatusUnauthorized, "invalid token")
 				return
 			}
 
-			r.Header.Set("X-User-Id", claimStr(claims, "sub"))
-			r.Header.Set("X-Org-Id", claimStr(claims, "owner"))
-			r.Header.Set("X-User-Email", claimStr(claims, "email"))
-			if claimBool(claims, "isAdmin") {
+			r.Header.Set("X-User-Id", ClaimStr(claims, "sub"))
+			r.Header.Set("X-Org-Id", ClaimStr(claims, "owner"))
+			r.Header.Set("X-User-Email", ClaimStr(claims, "email"))
+			if roles := ClaimStr(claims, "roles"); roles != "" {
+				r.Header.Set("X-User-Roles", roles)
+			}
+			if ClaimBool(claims, "isAdmin") {
 				r.Header.Set("X-User-IsAdmin", "true")
 			}
 			next.ServeHTTP(w, r)
@@ -70,7 +87,7 @@ func RequirePermission(perm string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			roles := r.Header.Get("X-User-Roles")
 			isAdmin := strings.EqualFold(r.Header.Get("X-User-IsAdmin"), "true")
-			if isAdmin || hasRole(roles, perm) || hasRole(roles, "admin") {
+			if isAdmin || HasRole(roles, perm) || HasRole(roles, "admin") {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -83,8 +100,8 @@ func RequirePermission(perm string) func(http.Handler) http.Handler {
 	}
 }
 
-// validateJWT validates RS256 JWT signature against JWKS and returns claims.
-func validateJWT(tokenStr, jwksURL string) (map[string]interface{}, error) {
+// ValidateJWT validates RS256 JWT signature against JWKS and returns claims.
+func ValidateJWT(tokenStr, jwksURL string) (map[string]interface{}, error) {
 	parts := strings.Split(tokenStr, ".")
 	if len(parts) != 3 {
 		return nil, fmt.Errorf("malformed token")
@@ -190,7 +207,8 @@ func getJWKSKey(jwksURL, kid string) (*rsa.PublicKey, error) {
 	return nil, fmt.Errorf("no key for kid=%s", kid)
 }
 
-func hasRole(roles, role string) bool {
+// HasRole checks whether a comma-separated role list contains the given role.
+func HasRole(roles, role string) bool {
 	for _, r := range strings.Split(roles, ",") {
 		if strings.TrimSpace(r) == role {
 			return true
@@ -199,14 +217,16 @@ func hasRole(roles, role string) bool {
 	return false
 }
 
-func claimStr(claims map[string]interface{}, key string) string {
+// ClaimStr extracts a string claim from JWT claims.
+func ClaimStr(claims map[string]interface{}, key string) string {
 	if v, ok := claims[key].(string); ok {
 		return v
 	}
 	return ""
 }
 
-func claimBool(claims map[string]interface{}, key string) bool {
+// ClaimBool extracts a boolean claim from JWT claims.
+func ClaimBool(claims map[string]interface{}, key string) bool {
 	if v, ok := claims[key].(bool); ok {
 		return v
 	}
@@ -216,5 +236,5 @@ func claimBool(claims map[string]interface{}, key string) bool {
 func writeErr(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	w.Write([]byte(`{"error":"` + msg + `"}`))
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
