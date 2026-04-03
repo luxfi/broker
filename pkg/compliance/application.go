@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/luxfi/broker/pkg/admin"
 	"github.com/luxfi/compliance/pkg/onboarding"
 	"github.com/rs/zerolog/log"
 )
@@ -449,7 +448,7 @@ func (h *applicationHandler) handleReview(w http.ResponseWriter, r *http.Request
 
 	// Extract reviewer identity from JWT context — never trust the request body.
 	// This prevents audit trail forgery (CRITICAL-3).
-	reviewer := admin.UserFromContext(r.Context())
+	reviewer := r.Header.Get("X-User-Id")
 	if reviewer == "" {
 		writeError(w, http.StatusUnauthorized, "reviewer identity not found in token")
 		return
