@@ -44,11 +44,13 @@ func Middleware() func(http.Handler) http.Handler {
 // RequirePermission checks roles from X-User-Roles (set by Gateway
 // from JWT claims). Admin role grants all permissions. Authenticated
 // users without explicit roles get "read" access.
+// X-User-IsAdmin: true (from IAM JWT isAdmin claim) also grants admin.
 func RequirePermission(perm string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			roles := r.Header.Get("X-User-Roles")
-			if hasRole(roles, perm) || hasRole(roles, "admin") {
+			isAdmin := strings.EqualFold(r.Header.Get("X-User-IsAdmin"), "true")
+			if isAdmin || hasRole(roles, perm) || hasRole(roles, "admin") {
 				next.ServeHTTP(w, r)
 				return
 			}
