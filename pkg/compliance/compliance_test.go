@@ -3045,7 +3045,7 @@ func TestSecurityOrgBasedAccess(t *testing.T) {
 
 func TestWalletScreenCleanAddress(t *testing.T) {
 	r, _ := newTestRouter()
-	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+	w := doRequest(r, "POST", "/wallet-screen", map[string]string{
 		"address":   "0x1234567890abcdef1234567890abcdef12345678",
 		"chain":     "ethereum",
 		"direction": "receive",
@@ -3073,7 +3073,7 @@ func TestWalletScreenOFACSanctioned(t *testing.T) {
 	r, _ := newTestRouter()
 
 	// Tornado Cash address (from OFAC SDN list).
-	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+	w := doRequest(r, "POST", "/wallet-screen", map[string]string{
 		"address":   "0x8589427373D6D84E98730D7795D8f6f8731FDA16",
 		"chain":     "ethereum",
 		"direction": "send",
@@ -3098,7 +3098,7 @@ func TestWalletScreenOFACCaseInsensitive(t *testing.T) {
 	r, _ := newTestRouter()
 
 	// Same Tornado Cash address but all lowercase.
-	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+	w := doRequest(r, "POST", "/wallet-screen", map[string]string{
 		"address":   "0x8589427373d6d84e98730d7795d8f6f8731fda16",
 		"chain":     "ethereum",
 		"direction": "receive",
@@ -3118,7 +3118,7 @@ func TestWalletScreenOFACCaseInsensitive(t *testing.T) {
 
 func TestWalletScreenLazarusGroup(t *testing.T) {
 	r, _ := newTestRouter()
-	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+	w := doRequest(r, "POST", "/wallet-screen", map[string]string{
 		"address":   "0x098B716B8Aaf21512996dC57EB0615e2383E2f96",
 		"chain":     "ethereum",
 		"direction": "receive",
@@ -3138,7 +3138,7 @@ func TestWalletScreenLazarusGroup(t *testing.T) {
 
 func TestWalletScreenMissingAddress(t *testing.T) {
 	r, _ := newTestRouter()
-	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+	w := doRequest(r, "POST", "/wallet-screen", map[string]string{
 		"chain": "ethereum",
 	})
 	if w.Code != http.StatusBadRequest {
@@ -3148,7 +3148,7 @@ func TestWalletScreenMissingAddress(t *testing.T) {
 
 func TestWalletScreenMissingChain(t *testing.T) {
 	r, _ := newTestRouter()
-	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+	w := doRequest(r, "POST", "/wallet-screen", map[string]string{
 		"address": "0x1234567890abcdef1234567890abcdef12345678",
 	})
 	if w.Code != http.StatusBadRequest {
@@ -3158,7 +3158,7 @@ func TestWalletScreenMissingChain(t *testing.T) {
 
 func TestWalletScreenInvalidChain(t *testing.T) {
 	r, _ := newTestRouter()
-	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+	w := doRequest(r, "POST", "/wallet-screen", map[string]string{
 		"address": "0x1234567890abcdef1234567890abcdef12345678",
 		"chain":   "solana",
 	})
@@ -3169,7 +3169,7 @@ func TestWalletScreenInvalidChain(t *testing.T) {
 
 func TestWalletScreenInvalidDirection(t *testing.T) {
 	r, _ := newTestRouter()
-	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+	w := doRequest(r, "POST", "/wallet-screen", map[string]string{
 		"address":   "0x1234567890abcdef1234567890abcdef12345678",
 		"chain":     "ethereum",
 		"direction": "bridge",
@@ -3182,7 +3182,7 @@ func TestWalletScreenInvalidDirection(t *testing.T) {
 func TestWalletScreenDefaultDirection(t *testing.T) {
 	r, _ := newTestRouter()
 	// Omit direction — should default to "receive" and succeed.
-	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+	w := doRequest(r, "POST", "/wallet-screen", map[string]string{
 		"address": "0x1234567890abcdef1234567890abcdef12345678",
 		"chain":   "liquidity",
 	})
@@ -3198,7 +3198,7 @@ func TestWalletScreenDefaultDirection(t *testing.T) {
 
 func TestWalletScreenBitcoinChain(t *testing.T) {
 	r, _ := newTestRouter()
-	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+	w := doRequest(r, "POST", "/wallet-screen", map[string]string{
 		"address":   "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh",
 		"chain":     "bitcoin",
 		"direction": "send",
@@ -3216,7 +3216,7 @@ func TestWalletScreenBitcoinChain(t *testing.T) {
 func TestWalletScreenAccessibleByAnyOrg(t *testing.T) {
 	r, _ := newTestRouter()
 	// Non-admin org should still access wallet-screen (self-service via kyc module).
-	w := doRequestAsOrg(r, "POST", "/compliance/wallet-screen", map[string]string{
+	w := doRequestAsOrg(r, "POST", "/wallet-screen", map[string]string{
 		"address":   "0x1234567890abcdef1234567890abcdef12345678",
 		"chain":     "ethereum",
 		"direction": "receive",
@@ -3233,7 +3233,7 @@ func TestWalletScreenAccessibleByAnyOrg(t *testing.T) {
 func TestWalletScreenScamAddress(t *testing.T) {
 	r, _ := newTestRouter()
 	// Top scam address from ScamSniffer database (492 phishing domains).
-	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+	w := doRequest(r, "POST", "/wallet-screen", map[string]string{
 		"address":   "0xc75269b342c1b7f4cbb82e80a7986878ac0f545b",
 		"chain":     "ethereum",
 		"direction": "receive",
@@ -3260,7 +3260,7 @@ func TestWalletScreenScamAddress(t *testing.T) {
 func TestWalletScreenScamCaseInsensitive(t *testing.T) {
 	r, _ := newTestRouter()
 	// Mixed-case version of scam address.
-	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+	w := doRequest(r, "POST", "/wallet-screen", map[string]string{
 		"address":   "0xC75269B342C1B7F4CBB82E80A7986878AC0F545B",
 		"chain":     "ethereum",
 		"direction": "send",
@@ -3280,7 +3280,7 @@ func TestWalletScreenScamCaseInsensitive(t *testing.T) {
 
 func TestWalletScreenCleanNotScam(t *testing.T) {
 	r, _ := newTestRouter()
-	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+	w := doRequest(r, "POST", "/wallet-screen", map[string]string{
 		"address":   "0xdead000000000000000000000000000000000000",
 		"chain":     "liquidity",
 		"direction": "receive",
@@ -3304,7 +3304,7 @@ func TestWalletScreenCleanNotScam(t *testing.T) {
 func TestWalletScreenResponseIncludesBothFields(t *testing.T) {
 	r, _ := newTestRouter()
 	// Clean address — verify response JSON has both sanctioned and scam fields.
-	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+	w := doRequest(r, "POST", "/wallet-screen", map[string]string{
 		"address":   "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"chain":     "bitcoin",
 		"direction": "receive",
@@ -3325,7 +3325,7 @@ func TestWalletScreenResponseIncludesBothFields(t *testing.T) {
 func TestWalletScreenOFACTakesPrecedenceOverScam(t *testing.T) {
 	r, _ := newTestRouter()
 	// OFAC address should return blocked/sanctioned even if it were also in scam DB.
-	w := doRequest(r, "POST", "/compliance/wallet-screen", map[string]string{
+	w := doRequest(r, "POST", "/wallet-screen", map[string]string{
 		"address":   "0x8589427373D6D84E98730D7795D8f6f8731FDA16",
 		"chain":     "ethereum",
 		"direction": "send",

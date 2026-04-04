@@ -133,7 +133,7 @@ func NewRouter(store ComplianceStore, opts ...RouterOption) chi.Router {
 	})
 
 	// Wallet address screening — any authenticated user, any org.
-	r.Post("/compliance/wallet-screen", rateLimitSensitive(guard("kyc", "read", aml.handleWalletScreen)))
+	r.Post("/wallet-screen", rateLimitSensitive(guard("kyc", "read", aml.handleWalletScreen)))
 
 	// Admin compliance routes — restricted to built-in org (superadmin).
 	r.Group(func(r chi.Router) {
