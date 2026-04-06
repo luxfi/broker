@@ -100,6 +100,7 @@ type CreateOrderRequest struct {
 	TrailPercent  string      `json:"trail_percent,omitempty"`
 	ExtendedHours bool        `json:"extended_hours,omitempty"`
 	OrderClass    string      `json:"order_class,omitempty"` // simple, bracket, oco, oto
+	AssetClass    string      `json:"asset_class,omitempty"` // us_equity, crypto, fixed_income
 	TakeProfit    *TakeProfit `json:"take_profit,omitempty"`
 	StopLoss      *StopLoss   `json:"stop_loss,omitempty"`
 }
@@ -117,15 +118,21 @@ type StopLoss struct {
 
 // Asset is a tradable instrument.
 type Asset struct {
-	ID           string `json:"id"`
-	Provider     string `json:"provider"`
-	Symbol       string `json:"symbol"`
-	Name         string `json:"name"`
-	Class        string `json:"class"` // us_equity, crypto
-	Exchange     string `json:"exchange,omitempty"`
-	Status       string `json:"status"`
-	Tradable     bool   `json:"tradable"`
-	Fractionable bool   `json:"fractionable"`
+	ID                  string `json:"id"`
+	Provider            string `json:"provider"`
+	Symbol              string `json:"symbol"`
+	Name                string `json:"name"`
+	Class               string `json:"class"` // us_equity, crypto, fixed_income
+	Exchange            string `json:"exchange,omitempty"`
+	Status              string `json:"status"`
+	Tradable            bool   `json:"tradable"`
+	Fractionable        bool   `json:"fractionable"`
+	OvernightTradable   bool   `json:"overnight_tradable"`
+	OvernightHalted     bool   `json:"overnight_halted"`
+	FractionalEHEnabled bool   `json:"fractional_eh_enabled"`
+	MinOrderSize        string `json:"min_order_size,omitempty"`
+	PriceIncrement      string `json:"price_increment,omitempty"`
+	MinTradeIncrement   string `json:"min_trade_increment,omitempty"`
 }
 
 // Transfer is a fund movement (ACH, wire, crypto).
@@ -1001,6 +1008,38 @@ type BondPosition struct {
 	AccruedInterest string `json:"accrued_interest"`
 	MaturityDate    string `json:"maturity_date"`
 	NextCouponDate  string `json:"next_coupon_date"`
+}
+
+// --- ACATS Transfer Types ---
+
+// ACATSTransfer is an Automated Customer Account Transfer Service transfer.
+type ACATSTransfer struct {
+	ID            string       `json:"id"`
+	AccountID     string       `json:"account_id"`
+	Direction     string       `json:"direction"`             // INCOMING
+	Status        string       `json:"status"`                // QUEUED, APPROVED, REJECTED, COMPLETE, etc.
+	ContraAccount string       `json:"contra_account_number"`
+	ContraBroker  string       `json:"contra_broker_number"`
+	Type          string       `json:"type"`                  // FULL, PARTIAL
+	Assets        []ACATSAsset `json:"assets,omitempty"`
+	RejectReason  string       `json:"reject_reason,omitempty"`
+	CreatedAt     string       `json:"created_at"`
+	UpdatedAt     string       `json:"updated_at"`
+}
+
+// ACATSAsset is a single asset within an ACATS transfer.
+type ACATSAsset struct {
+	Symbol string `json:"symbol"`
+	Qty    string `json:"qty"`
+	Status string `json:"status"`
+}
+
+// CreateACATSTransferRequest for initiating an ACATS transfer.
+type CreateACATSTransferRequest struct {
+	ContraAccount string       `json:"contra_account_number"`
+	ContraBroker  string       `json:"contra_broker_number"`
+	Type          string       `json:"type"` // FULL, PARTIAL
+	Assets        []ACATSAsset `json:"assets,omitempty"`
 }
 
 // MarginCheckRequest checks margin for a proposed order.
