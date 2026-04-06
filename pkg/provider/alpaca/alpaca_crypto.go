@@ -173,6 +173,37 @@ func (p *Provider) GetCryptoTrades(ctx context.Context, req *types.CryptoTradesR
 	return resp, nil
 }
 
+// ListCryptoAssets returns all active crypto assets with their specific fields.
+func (p *Provider) ListCryptoAssets(ctx context.Context) ([]*types.Asset, error) {
+	return p.ListAssets(ctx, "crypto")
+}
+
+// ListCryptoWallets lists crypto wallets for a given account.
+func (p *Provider) ListCryptoWallets(ctx context.Context, accountID string) ([]types.CryptoWallet, error) {
+	data, _, err := p.do(ctx, http.MethodGet, "/v1/accounts/"+accountID+"/wallets/crypto", nil)
+	if err != nil {
+		return nil, err
+	}
+	var wallets []types.CryptoWallet
+	if err := json.Unmarshal(data, &wallets); err != nil {
+		return nil, err
+	}
+	return wallets, nil
+}
+
+// GetCryptoWallet returns a single crypto wallet by ID.
+func (p *Provider) GetCryptoWallet(ctx context.Context, accountID, walletID string) (*types.CryptoWallet, error) {
+	data, _, err := p.do(ctx, http.MethodGet, "/v1/accounts/"+accountID+"/wallets/crypto/"+walletID, nil)
+	if err != nil {
+		return nil, err
+	}
+	var w types.CryptoWallet
+	if err := json.Unmarshal(data, &w); err != nil {
+		return nil, err
+	}
+	return &w, nil
+}
+
 func (p *Provider) GetCryptoSnapshots(ctx context.Context, symbols []string) (map[string]*types.CryptoSnapshot, error) {
 	path := "/v1beta3/crypto/us/snapshots?symbols=" + strings.Join(symbols, ",")
 	data, _, err := p.doData(ctx, http.MethodGet, path)
