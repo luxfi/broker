@@ -156,13 +156,18 @@ func (p *Provider) GetAccountActivities(ctx context.Context, accountID string, p
 }
 
 // AddCryptoAgreement PATCHes a crypto_agreement onto an existing account.
-func (p *Provider) AddCryptoAgreement(ctx context.Context, accountID string) error {
+// ipAddress must be the real client IP from the HTTP request (e.g. r.RemoteAddr
+// or X-Forwarded-For). Alpaca requires a valid IP for regulatory audit trail.
+func (p *Provider) AddCryptoAgreement(ctx context.Context, accountID, ipAddress string) error {
+	if ipAddress == "" {
+		return fmt.Errorf("client IP address is required for agreement signing")
+	}
 	body := map[string]interface{}{
 		"agreements": []map[string]interface{}{
 			{
 				"agreement":  "crypto_agreement",
 				"signed_at":  time.Now().UTC().Format(time.RFC3339),
-				"ip_address": "0.0.0.0",
+				"ip_address": ipAddress,
 			},
 		},
 	}
@@ -172,7 +177,7 @@ func (p *Provider) AddCryptoAgreement(ctx context.Context, accountID string) err
 
 // GetCountryInfo returns country eligibility and restriction data for brokerage.
 func (p *Provider) GetCountryInfo(ctx context.Context) ([]types.CountryInfo, error) {
-	data, _, err := p.do(ctx, http.MethodGet, "/v1/reference/queryCountryInfos-1", nil)
+	data, _, err := p.do(ctx, http.MethodGet, "/v1/reference/queryCountryInfos", nil)
 	if err != nil {
 		return nil, err
 	}
