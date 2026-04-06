@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -117,6 +118,35 @@ func main() {
 	defer cancel()
 
 	scamDB.StartBackgroundRefresh(ctx)
+
+	// Background asset sync: refresh tradable assets from all providers hourly.
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		syncAssets := func() {
+			for _, name := range registry.List() {
+				p, err := registry.Get(name)
+				if err != nil {
+					continue
+				}
+				assets, err := p.ListAssets(ctx, "")
+				if err != nil {
+					log.Error().Err(err).Str("provider", name).Msg("asset sync failed")
+					continue
+				}
+				log.Info().Str("provider", name).Int("count", len(assets)).Msg("asset sync complete")
+			}
+		}
+		syncAssets() // initial sync on startup
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				syncAssets()
+			}
+		}
+	}()
 
 	errCh := make(chan error, 2)
 	go func() {

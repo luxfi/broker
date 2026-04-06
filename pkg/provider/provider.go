@@ -61,6 +61,19 @@ type ACATSManager interface {
 	CancelACATSTransfer(ctx context.Context, accountID, transferID string) error
 }
 
+// FixedIncomeTrader is an optional interface for fixed income order execution,
+// positions, and asset listing (corporate bonds, treasuries).
+type FixedIncomeTrader interface {
+	ListCorporateBonds(ctx context.Context) ([]*types.Asset, error)
+	ListTreasuryBonds(ctx context.Context) ([]*types.Asset, error)
+	CreateFixedIncomeOrder(ctx context.Context, accountID string, req *types.CreateOrderRequest) (*types.Order, error)
+	GetFixedIncomeOrder(ctx context.Context, accountID, orderID string) (*types.Order, error)
+	CancelFixedIncomeOrder(ctx context.Context, accountID, orderID string) error
+	GetFixedIncomeActivities(ctx context.Context, accountID string) ([]*types.Activity, error)
+	GetFixedIncomePositions(ctx context.Context, accountID string) ([]*types.Position, error)
+	CloseFixedIncomePosition(ctx context.Context, accountID, symbol string, qty *float64) (*types.Order, error)
+}
+
 // CryptoDataProvider is an optional interface for crypto-specific market data.
 type CryptoDataProvider interface {
 	GetCryptoBars(ctx context.Context, req *types.CryptoBarsRequest) (*types.BarsResponse, error)

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -182,6 +183,22 @@ func NewServer(registry *provider.Registry, listenAddr string) *Server {
 		r.Post("/accounts/{provider}/{accountId}/recipient-banks", s.handleCreateRecipientBank)
 		r.Get("/accounts/{provider}/{accountId}/recipient-banks", s.handleListRecipientBanks)
 		r.Delete("/accounts/{provider}/{accountId}/recipient-banks/{bankId}", s.handleDeleteRecipientBank)
+
+		// ACATS Transfers
+		r.Get("/accounts/{provider}/acats/disclosure", s.handleGetACATSDisclosure)
+		r.Post("/accounts/{provider}/{accountId}/acats", s.handleCreateACATSTransfer)
+		r.Get("/accounts/{provider}/{accountId}/acats", s.handleListACATSTransfers)
+		r.Get("/accounts/{provider}/{accountId}/acats/{transferId}", s.handleGetACATSTransfer)
+		r.Delete("/accounts/{provider}/{accountId}/acats/{transferId}", s.handleCancelACATSTransfer)
+
+		// Fixed Income
+		r.Get("/assets/fixed-income/corporates", s.handleListCorporateBonds)
+		r.Get("/assets/fixed-income/treasuries", s.handleListTreasuryBonds)
+		r.Post("/accounts/{provider}/{accountId}/fixed-income/orders", s.handleCreateFixedIncomeOrder)
+		r.Get("/accounts/{provider}/{accountId}/fixed-income/orders/{orderId}", s.handleGetFixedIncomeOrder)
+		r.Delete("/accounts/{provider}/{accountId}/fixed-income/orders/{orderId}", s.handleCancelFixedIncomeOrder)
+		r.Get("/accounts/{provider}/{accountId}/fixed-income/positions", s.handleGetFixedIncomePositions)
+		r.Delete("/accounts/{provider}/{accountId}/fixed-income/positions/{symbol}", s.handleCloseFixedIncomePosition)
 
 		// Crypto Market Data
 		r.Get("/market/{provider}/crypto/bars", s.handleGetCryptoBars)
@@ -379,6 +396,7 @@ func (s *Server) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 			City: req.City, State: req.State, PostalCode: req.PostalCode, Country: req.Country,
 		},
 		EnabledAssets: req.EnabledAssets,
+		IPAddress:     extractClientIP(r),
 	})
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
@@ -1198,6 +1216,16 @@ func (s *Server) handleAuditExport(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- Helpers ---
+
+// extractClientIP returns the client IP from the HTTP request.
+// In production behind hanzoai/ingress, RemoteAddr is set to the real client IP.
+func extractClientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
