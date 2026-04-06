@@ -1,6 +1,9 @@
 package types
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // Account is the unified brokerage account across all providers.
 type Account struct {
@@ -42,12 +45,13 @@ type Contact struct {
 
 // Portfolio is a snapshot of an account's holdings.
 type Portfolio struct {
-	AccountID     string     `json:"account_id"`
-	Cash          string     `json:"cash"`
-	Equity        string     `json:"equity"`
-	BuyingPower   string     `json:"buying_power"`
-	PortfolioValue string   `json:"portfolio_value"`
-	Positions     []Position `json:"positions"`
+	AccountID               string     `json:"account_id"`
+	Cash                    string     `json:"cash"`
+	Equity                  string     `json:"equity"`
+	BuyingPower             string     `json:"buying_power"`
+	NonMarginableBuyingPower string   `json:"non_marginable_buying_power,omitempty"`
+	PortfolioValue          string     `json:"portfolio_value"`
+	Positions               []Position `json:"positions"`
 }
 
 // Position is a single holding.
@@ -591,11 +595,12 @@ type TradeEvent struct {
 
 // AccountEvent is emitted when an account status changes.
 type AccountEvent struct {
-	EventType string   `json:"event_type"` // ACCOUNT_UPDATED, ACCOUNT_APPROVED, etc.
-	EventID   string   `json:"event_id"`
-	AccountID string   `json:"account_id"`
-	Account   *Account `json:"account,omitempty"`
-	Timestamp string   `json:"timestamp"`
+	EventType      string   `json:"event_type"` // ACCOUNT_UPDATED, ACCOUNT_APPROVED, etc.
+	EventID        string   `json:"event_id"`
+	AccountID      string   `json:"account_id"`
+	Account        *Account `json:"account,omitempty"`
+	TradingBlocked bool     `json:"trading_blocked,omitempty"`
+	Timestamp      string   `json:"timestamp"`
 }
 
 // TransferEvent is emitted when a transfer changes state.
@@ -1040,6 +1045,56 @@ type CreateACATSTransferRequest struct {
 	ContraBroker  string       `json:"contra_broker_number"`
 	Type          string       `json:"type"` // FULL, PARTIAL
 	Assets        []ACATSAsset `json:"assets,omitempty"`
+}
+
+// --- Crypto Wallet Types ---
+
+// CryptoWallet is an Alpaca-managed crypto wallet for a brokerage account.
+type CryptoWallet struct {
+	ID        string `json:"id"`
+	AccountID string `json:"account_id"`
+	Asset     string `json:"asset"`
+	Address   string `json:"address"`
+	Status    string `json:"status"`
+	CreatedAt string `json:"created_at,omitempty"`
+}
+
+// --- Country / Regional Reference Types ---
+
+// CountryInfo describes a country's eligibility and restrictions for brokerage.
+type CountryInfo struct {
+	Code          string `json:"code"`
+	Name          string `json:"name"`
+	IsSupported   bool   `json:"is_supported"`
+	CryptoAllowed bool   `json:"crypto_allowed,omitempty"`
+}
+
+// --- TIF Validation ---
+
+// ValidEquityTIF is the set of valid time-in-force values for equity orders.
+var ValidEquityTIF = map[string]bool{
+	"day": true, "gtc": true, "opg": true,
+	"cls": true, "ioc": true, "fok": true,
+}
+
+// ValidCryptoTIF is the set of valid time-in-force values for crypto orders.
+var ValidCryptoTIF = map[string]bool{
+	"gtc": true, "ioc": true,
+}
+
+// ValidateTIF returns an error if tif is not valid for the given asset class.
+func ValidateTIF(assetClass, tif string) error {
+	switch assetClass {
+	case "crypto":
+		if !ValidCryptoTIF[tif] {
+			return fmt.Errorf("invalid TIF %q for crypto; allowed: gtc, ioc", tif)
+		}
+	default:
+		if !ValidEquityTIF[tif] {
+			return fmt.Errorf("invalid TIF %q for %s; allowed: day, gtc, opg, cls, ioc, fok", tif, assetClass)
+		}
+	}
+	return nil
 }
 
 // MarginCheckRequest checks margin for a proposed order.

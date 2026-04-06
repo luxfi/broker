@@ -78,6 +78,33 @@ func (p *Provider) DownloadDocument(ctx context.Context, accountID, documentID s
 	return data, "application/pdf", nil
 }
 
+// GetSubaccountConfirms returns trade confirmations and statements for a subaccount.
+func (p *Provider) GetSubaccountConfirms(ctx context.Context, accountID string, params map[string]string) ([]types.Document, error) {
+	path := "/v1/accounts/" + accountID + "/documents?type=trade_confirmation"
+	for k, v := range params {
+		path += "&" + k + "=" + v
+	}
+
+	data, _, err := p.do(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var raw []json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+	docs := make([]types.Document, 0, len(raw))
+	for _, r := range raw {
+		d, err := p.parseDocument(r)
+		if err != nil {
+			continue
+		}
+		docs = append(docs, *d)
+	}
+	return docs, nil
+}
+
 func (p *Provider) parseDocument(data []byte) (*types.Document, error) {
 	var raw struct {
 		ID              string `json:"id"`
