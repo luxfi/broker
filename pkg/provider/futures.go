@@ -50,21 +50,6 @@ type FXProvider interface {
 	GetFXRate(ctx context.Context, baseCurrency, quoteCurrency string) (*types.FXRate, error)
 }
 
-// FixedIncomeProvider is an optional interface for bond/treasury trading.
-type FixedIncomeProvider interface {
-	// SearchBonds searches for bonds by criteria.
-	SearchBonds(ctx context.Context, params *types.BondSearchParams) ([]*types.Bond, error)
-
-	// GetBondQuote returns a quote for a specific bond.
-	GetBondQuote(ctx context.Context, cusip string) (*types.BondQuote, error)
-
-	// CreateBondOrder places a bond order.
-	CreateBondOrder(ctx context.Context, accountID string, req *types.CreateBondOrderRequest) (*types.Order, error)
-
-	// GetBondPositions returns all bond positions for an account.
-	GetBondPositions(ctx context.Context, accountID string) ([]*types.BondPosition, error)
-}
-
 // MarginProvider is an optional interface for margin account management.
 type MarginProvider interface {
 	// GetMarginRequirements returns margin requirements for a proposed order.

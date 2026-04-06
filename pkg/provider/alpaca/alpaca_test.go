@@ -123,6 +123,7 @@ func TestCreateAccount(t *testing.T) {
 			Phone: "555-1234",
 			City:  "NYC",
 		},
+		IPAddress: "203.0.113.42",
 	})
 	if err != nil {
 		t.Fatalf("CreateAccount error: %v", err)
