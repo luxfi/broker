@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/luxfi/broker/pkg/types"
 )
@@ -152,4 +153,32 @@ func (p *Provider) GetAccountActivities(ctx context.Context, accountID string, p
 		}
 	}
 	return activities, nil
+}
+
+// AddCryptoAgreement PATCHes a crypto_agreement onto an existing account.
+func (p *Provider) AddCryptoAgreement(ctx context.Context, accountID string) error {
+	body := map[string]interface{}{
+		"agreements": []map[string]interface{}{
+			{
+				"agreement":  "crypto_agreement",
+				"signed_at":  time.Now().UTC().Format(time.RFC3339),
+				"ip_address": "0.0.0.0",
+			},
+		},
+	}
+	_, _, err := p.do(ctx, http.MethodPatch, "/v1/accounts/"+accountID, body)
+	return err
+}
+
+// GetCountryInfo returns country eligibility and restriction data for brokerage.
+func (p *Provider) GetCountryInfo(ctx context.Context) ([]types.CountryInfo, error) {
+	data, _, err := p.do(ctx, http.MethodGet, "/v1/reference/queryCountryInfos-1", nil)
+	if err != nil {
+		return nil, err
+	}
+	var raw []types.CountryInfo
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+	return raw, nil
 }
