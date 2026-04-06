@@ -9,8 +9,263 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/luxfi/broker/pkg/provider"
+	"github.com/luxfi/broker/pkg/provider/alpaca"
 	"github.com/luxfi/broker/pkg/types"
 )
+
+// --- ACATS Handlers ---
+
+func (s *Server) handleCreateACATSTransfer(w http.ResponseWriter, r *http.Request) {
+	p, err := s.getProvider(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	am, ok := p.(provider.ACATSManager)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "provider does not support ACATS transfers")
+		return
+	}
+	var req types.CreateACATSTransferRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	transfer, err := am.CreateACATSTransfer(r.Context(), chi.URLParam(r, "accountId"), &req)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, transfer)
+}
+
+func (s *Server) handleListACATSTransfers(w http.ResponseWriter, r *http.Request) {
+	p, err := s.getProvider(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	am, ok := p.(provider.ACATSManager)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "provider does not support ACATS transfers")
+		return
+	}
+	transfers, err := am.ListACATSTransfers(r.Context(), chi.URLParam(r, "accountId"))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, transfers)
+}
+
+func (s *Server) handleGetACATSTransfer(w http.ResponseWriter, r *http.Request) {
+	p, err := s.getProvider(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	am, ok := p.(provider.ACATSManager)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "provider does not support ACATS transfers")
+		return
+	}
+	transfer, err := am.GetACATSTransfer(r.Context(), chi.URLParam(r, "accountId"), chi.URLParam(r, "transferId"))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, transfer)
+}
+
+func (s *Server) handleCancelACATSTransfer(w http.ResponseWriter, r *http.Request) {
+	p, err := s.getProvider(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	am, ok := p.(provider.ACATSManager)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "provider does not support ACATS transfers")
+		return
+	}
+	if err := am.CancelACATSTransfer(r.Context(), chi.URLParam(r, "accountId"), chi.URLParam(r, "transferId")); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
+}
+
+// --- ACATS Disclosure ---
+
+// handleGetACATSDisclosure returns the ACATS disclosure text that must be
+// presented to and accepted by the user before initiating a transfer.
+func (s *Server) handleGetACATSDisclosure(w http.ResponseWriter, r *http.Request) {
+	p, err := s.getProvider(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// Verify provider supports ACATS
+	if _, ok := p.(provider.ACATSManager); !ok {
+		writeError(w, http.StatusNotImplemented, "provider does not support ACATS transfers")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"disclosure": alpaca.ACATSDisclosure,
+	})
+}
+
+// --- Fixed Income Handlers ---
+
+func (s *Server) handleListCorporateBonds(w http.ResponseWriter, r *http.Request) {
+	// Fixed income asset listing is provider-agnostic — iterate all providers.
+	for _, name := range s.registry.List() {
+		p, err := s.registry.Get(name)
+		if err != nil {
+			continue
+		}
+		fip, ok := p.(provider.FixedIncomeTrader)
+		if !ok {
+			continue
+		}
+		bonds, err := fip.ListCorporateBonds(r.Context())
+		if err != nil {
+			writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, bonds)
+		return
+	}
+	writeError(w, http.StatusNotImplemented, "no provider supports fixed income")
+}
+
+func (s *Server) handleListTreasuryBonds(w http.ResponseWriter, r *http.Request) {
+	for _, name := range s.registry.List() {
+		p, err := s.registry.Get(name)
+		if err != nil {
+			continue
+		}
+		fip, ok := p.(provider.FixedIncomeTrader)
+		if !ok {
+			continue
+		}
+		bonds, err := fip.ListTreasuryBonds(r.Context())
+		if err != nil {
+			writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, bonds)
+		return
+	}
+	writeError(w, http.StatusNotImplemented, "no provider supports fixed income")
+}
+
+func (s *Server) handleCreateFixedIncomeOrder(w http.ResponseWriter, r *http.Request) {
+	p, err := s.getProvider(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	fip, ok := p.(provider.FixedIncomeTrader)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "provider does not support fixed income")
+		return
+	}
+	var req types.CreateOrderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	order, err := fip.CreateFixedIncomeOrder(r.Context(), chi.URLParam(r, "accountId"), &req)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, order)
+}
+
+func (s *Server) handleGetFixedIncomeOrder(w http.ResponseWriter, r *http.Request) {
+	p, err := s.getProvider(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	fip, ok := p.(provider.FixedIncomeTrader)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "provider does not support fixed income")
+		return
+	}
+	order, err := fip.GetFixedIncomeOrder(r.Context(), chi.URLParam(r, "accountId"), chi.URLParam(r, "orderId"))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, order)
+}
+
+func (s *Server) handleCancelFixedIncomeOrder(w http.ResponseWriter, r *http.Request) {
+	p, err := s.getProvider(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	fip, ok := p.(provider.FixedIncomeTrader)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "provider does not support fixed income")
+		return
+	}
+	if err := fip.CancelFixedIncomeOrder(r.Context(), chi.URLParam(r, "accountId"), chi.URLParam(r, "orderId")); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
+}
+
+func (s *Server) handleGetFixedIncomePositions(w http.ResponseWriter, r *http.Request) {
+	p, err := s.getProvider(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	fip, ok := p.(provider.FixedIncomeTrader)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "provider does not support fixed income")
+		return
+	}
+	positions, err := fip.GetFixedIncomePositions(r.Context(), chi.URLParam(r, "accountId"))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, positions)
+}
+
+func (s *Server) handleCloseFixedIncomePosition(w http.ResponseWriter, r *http.Request) {
+	p, err := s.getProvider(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	fip, ok := p.(provider.FixedIncomeTrader)
+	if !ok {
+		writeError(w, http.StatusNotImplemented, "provider does not support fixed income")
+		return
+	}
+	accountID := chi.URLParam(r, "accountId")
+	symbol := chi.URLParam(r, "symbol")
+	var qty *float64
+	if qStr := r.URL.Query().Get("qty"); qStr != "" {
+		if q, err := strconv.ParseFloat(qStr, 64); err == nil {
+			qty = &q
+		}
+	}
+	order, err := fip.CloseFixedIncomePosition(r.Context(), accountID, symbol, qty)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, order)
+}
 
 // --- Account Management Handlers ---
 
