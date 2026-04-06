@@ -356,6 +356,38 @@ func (p *Provider) GetPortfolio(ctx context.Context, providerAccountID string) (
 // --- Orders ---
 
 func (p *Provider) CreateOrder(ctx context.Context, providerAccountID string, req *types.CreateOrderRequest) (*types.Order, error) {
+	// Decimal precision validation (Alpaca sign-off requirement)
+	if err := validateDecimalPlaces(req.Notional, 2, "notional"); err != nil {
+		return nil, err
+	}
+	if err := validateDecimalPlaces(req.Qty, 9, "quantity"); err != nil {
+		return nil, err
+	}
+
+	// Crypto-specific validation
+	isCrypto := strings.Contains(req.Symbol, "/") || req.AssetClass == "crypto"
+	if isCrypto {
+		tif := strings.ToLower(req.TimeInForce)
+		if tif != "" && tif != "gtc" && tif != "ioc" {
+			return nil, fmt.Errorf("crypto orders only support TIF gtc or ioc, got %q", req.TimeInForce)
+		}
+		if req.Notional != "" {
+			if n, _ := strconv.ParseFloat(req.Notional, 64); n > 200000 {
+				return nil, fmt.Errorf("crypto orders cannot exceed $200,000 notional (got $%.2f)", n)
+			}
+			if strings.EqualFold(req.Side, "buy") {
+				if n, _ := strconv.ParseFloat(req.Notional, 64); n < 1.0 {
+					return nil, fmt.Errorf("crypto buy orders require minimum $1 notional (got $%.2f)", n)
+				}
+			}
+		}
+		if req.Qty != "" {
+			if q, _ := strconv.ParseFloat(req.Qty, 64); q > 0 && q < 0.000000002 {
+				return nil, fmt.Errorf("crypto orders require minimum quantity 0.000000002 (got %v)", q)
+			}
+		}
+	}
+
 	body := map[string]interface{}{
 		"symbol":        req.Symbol,
 		"side":          req.Side,
@@ -576,6 +608,21 @@ func (p *Provider) parsePosition(data []byte) (*types.Position, error) {
 	}, nil
 }
 
+// validateDecimalPlaces checks that a numeric string has at most maxPlaces decimal digits.
+func validateDecimalPlaces(value string, maxPlaces int, field string) error {
+	if value == "" {
+		return nil
+	}
+	parts := strings.Split(value, ".")
+	if len(parts) == 1 {
+		return nil
+	}
+	if len(parts[1]) > maxPlaces {
+		return fmt.Errorf("%s %q has %d decimal places, max allowed is %d", field, value, len(parts[1]), maxPlaces)
+	}
+	return nil
+}
+
 func (p *Provider) parseOrder(data []byte) (*types.Order, error) {
 	var raw struct {
 		ID             string  `json:"id"`
@@ -767,14 +814,20 @@ func (p *Provider) ListAssets(ctx context.Context, class string) ([]*types.Asset
 		return nil, err
 	}
 	var raw []struct {
-		ID           string `json:"id"`
-		Symbol       string `json:"symbol"`
-		Name         string `json:"name"`
-		Class        string `json:"class"`
-		Exchange     string `json:"exchange"`
-		Status       string `json:"status"`
-		Tradable     bool   `json:"tradable"`
-		Fractionable bool   `json:"fractionable"`
+		ID                  string `json:"id"`
+		Symbol              string `json:"symbol"`
+		Name                string `json:"name"`
+		Class               string `json:"class"`
+		Exchange            string `json:"exchange"`
+		Status              string `json:"status"`
+		Tradable            bool   `json:"tradable"`
+		Fractionable        bool   `json:"fractionable"`
+		OvernightTradable   bool   `json:"overnight_tradable"`
+		OvernightHalted     bool   `json:"overnight_halted"`
+		FractionalEHEnabled bool   `json:"fractional_eh_enabled"`
+		MinOrderSize        string `json:"min_order_size"`
+		PriceIncrement      string `json:"price_increment"`
+		MinTradeIncrement   string `json:"min_trade_increment"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, err
@@ -782,15 +835,21 @@ func (p *Provider) ListAssets(ctx context.Context, class string) ([]*types.Asset
 	assets := make([]*types.Asset, len(raw))
 	for i, r := range raw {
 		assets[i] = &types.Asset{
-			ID:           r.ID,
-			Provider:     "alpaca",
-			Symbol:       r.Symbol,
-			Name:         r.Name,
-			Class:        r.Class,
-			Exchange:     r.Exchange,
-			Status:       r.Status,
-			Tradable:     r.Tradable,
-			Fractionable: r.Fractionable,
+			ID:                  r.ID,
+			Provider:            "alpaca",
+			Symbol:              r.Symbol,
+			Name:                r.Name,
+			Class:               r.Class,
+			Exchange:            r.Exchange,
+			Status:              r.Status,
+			Tradable:            r.Tradable,
+			Fractionable:        r.Fractionable,
+			OvernightTradable:   r.OvernightTradable,
+			OvernightHalted:     r.OvernightHalted,
+			FractionalEHEnabled: r.FractionalEHEnabled,
+			MinOrderSize:        r.MinOrderSize,
+			PriceIncrement:      r.PriceIncrement,
+			MinTradeIncrement:   r.MinTradeIncrement,
 		}
 	}
 	return assets, nil
@@ -804,28 +863,40 @@ func (p *Provider) GetAsset(ctx context.Context, symbolOrID string) (*types.Asse
 		return nil, err
 	}
 	var raw struct {
-		ID           string `json:"id"`
-		Symbol       string `json:"symbol"`
-		Name         string `json:"name"`
-		Class        string `json:"class"`
-		Exchange     string `json:"exchange"`
-		Status       string `json:"status"`
-		Tradable     bool   `json:"tradable"`
-		Fractionable bool   `json:"fractionable"`
+		ID                  string `json:"id"`
+		Symbol              string `json:"symbol"`
+		Name                string `json:"name"`
+		Class               string `json:"class"`
+		Exchange            string `json:"exchange"`
+		Status              string `json:"status"`
+		Tradable            bool   `json:"tradable"`
+		Fractionable        bool   `json:"fractionable"`
+		OvernightTradable   bool   `json:"overnight_tradable"`
+		OvernightHalted     bool   `json:"overnight_halted"`
+		FractionalEHEnabled bool   `json:"fractional_eh_enabled"`
+		MinOrderSize        string `json:"min_order_size"`
+		PriceIncrement      string `json:"price_increment"`
+		MinTradeIncrement   string `json:"min_trade_increment"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, err
 	}
 	return &types.Asset{
-		ID:           raw.ID,
-		Provider:     "alpaca",
-		Symbol:       raw.Symbol,
-		Name:         raw.Name,
-		Class:        raw.Class,
-		Exchange:     raw.Exchange,
-		Status:       raw.Status,
-		Tradable:     raw.Tradable,
-		Fractionable: raw.Fractionable,
+		ID:                  raw.ID,
+		Provider:            "alpaca",
+		Symbol:              raw.Symbol,
+		Name:                raw.Name,
+		Class:               raw.Class,
+		Exchange:            raw.Exchange,
+		Status:              raw.Status,
+		Tradable:            raw.Tradable,
+		Fractionable:        raw.Fractionable,
+		OvernightTradable:   raw.OvernightTradable,
+		OvernightHalted:     raw.OvernightHalted,
+		FractionalEHEnabled: raw.FractionalEHEnabled,
+		MinOrderSize:        raw.MinOrderSize,
+		PriceIncrement:      raw.PriceIncrement,
+		MinTradeIncrement:   raw.MinTradeIncrement,
 	}, nil
 }
 
