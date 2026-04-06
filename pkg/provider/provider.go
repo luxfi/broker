@@ -53,6 +53,14 @@ type TransferExtended interface {
 	DeleteRecipientBank(ctx context.Context, accountID, bankID string) error
 }
 
+// ACATSManager is an optional interface for ACATS (Automated Customer Account Transfer Service) operations.
+type ACATSManager interface {
+	CreateACATSTransfer(ctx context.Context, accountID string, req *types.CreateACATSTransferRequest) (*types.ACATSTransfer, error)
+	GetACATSTransfer(ctx context.Context, accountID, transferID string) (*types.ACATSTransfer, error)
+	ListACATSTransfers(ctx context.Context, accountID string) ([]*types.ACATSTransfer, error)
+	CancelACATSTransfer(ctx context.Context, accountID, transferID string) error
+}
+
 // CryptoDataProvider is an optional interface for crypto-specific market data.
 type CryptoDataProvider interface {
 	GetCryptoBars(ctx context.Context, req *types.CryptoBarsRequest) (*types.BarsResponse, error)

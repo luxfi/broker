@@ -301,10 +301,11 @@ func (p *Provider) GetPortfolio(ctx context.Context, providerAccountID string) (
 		return nil, err
 	}
 	var ta struct {
-		Cash           string `json:"cash"`
-		Equity         string `json:"equity"`
-		BuyingPower    string `json:"buying_power"`
-		PortfolioValue string `json:"portfolio_value"`
+		Cash                     string `json:"cash"`
+		Equity                   string `json:"equity"`
+		BuyingPower              string `json:"buying_power"`
+		NonMarginableBuyingPower string `json:"non_marginable_buying_power"`
+		PortfolioValue           string `json:"portfolio_value"`
 	}
 	if err := json.Unmarshal(tData, &ta); err != nil {
 		return nil, err
@@ -344,12 +345,13 @@ func (p *Provider) GetPortfolio(ctx context.Context, providerAccountID string) (
 	}
 
 	return &types.Portfolio{
-		AccountID:      providerAccountID,
-		Cash:           ta.Cash,
-		Equity:         ta.Equity,
-		BuyingPower:    ta.BuyingPower,
-		PortfolioValue: ta.PortfolioValue,
-		Positions:      positions,
+		AccountID:                providerAccountID,
+		Cash:                     ta.Cash,
+		Equity:                   ta.Equity,
+		BuyingPower:              ta.BuyingPower,
+		NonMarginableBuyingPower: ta.NonMarginableBuyingPower,
+		PortfolioValue:           ta.PortfolioValue,
+		Positions:                positions,
 	}, nil
 }
 
