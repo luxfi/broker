@@ -285,6 +285,17 @@ func (r *Router) BuildSplitPlan(ctx context.Context, symbol, side, qty string) (
 		}
 	}
 
+	// Crypto aggregate notional limit: Alpaca restricts crypto orders to $200K.
+	// Individual leg checks in CreateOrder are insufficient — the aggregate
+	// across all legs must also respect the limit.
+	isCryptoSymbol := strings.Contains(symbol, "/")
+	if isCryptoSymbol && plan.EstimatedVWAP > 0 {
+		aggregateNotional := plan.EstimatedVWAP * totalQty
+		if aggregateNotional > 200000 {
+			return nil, fmt.Errorf("crypto split plan aggregate notional $%.2f exceeds $200,000 limit", aggregateNotional)
+		}
+	}
+
 	return plan, nil
 }
 
