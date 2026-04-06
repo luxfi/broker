@@ -81,20 +81,22 @@ func (p *Provider) StreamAccountEvents(ctx context.Context, since string) (<-cha
 	ch := make(chan *types.AccountEvent, 64)
 	err := p.streamSSE(ctx, path, func(data []byte) {
 		var raw struct {
-			EventType string `json:"event"`
-			EventID   string `json:"event_id"`
-			AccountID string `json:"account_id"`
-			Timestamp string `json:"at"`
+			EventType      string `json:"event"`
+			EventID        string `json:"event_id"`
+			AccountID      string `json:"account_id"`
+			TradingBlocked bool   `json:"trading_blocked"`
+			Timestamp      string `json:"at"`
 		}
 		if json.Unmarshal(data, &raw) != nil {
 			return
 		}
 		select {
 		case ch <- &types.AccountEvent{
-			EventType: raw.EventType,
-			EventID:   raw.EventID,
-			AccountID: raw.AccountID,
-			Timestamp: raw.Timestamp,
+			EventType:      raw.EventType,
+			EventID:        raw.EventID,
+			AccountID:      raw.AccountID,
+			TradingBlocked: raw.TradingBlocked,
+			Timestamp:      raw.Timestamp,
 		}:
 		default:
 		}
