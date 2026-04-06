@@ -193,7 +193,7 @@ func (p *Provider) CreateAccount(ctx context.Context, req *types.CreateAccountRe
 
 	ipAddress := req.IPAddress
 	if ipAddress == "" {
-		ipAddress = "0.0.0.0"
+		return nil, fmt.Errorf("client IP address is required for agreement signing")
 	}
 
 	// Disclosures: use request values if provided, default to false
@@ -242,12 +242,25 @@ func (p *Provider) CreateAccount(ctx context.Context, req *types.CreateAccountRe
 			"is_politically_exposed":          isPoliticallyExposed,
 			"immediate_family_exposed":        immediateFamilyExposed,
 		},
-		"agreements": []map[string]interface{}{
-			{"agreement": "margin_agreement", "signed_at": now, "ip_address": ipAddress},
-			{"agreement": "account_agreement", "signed_at": now, "ip_address": ipAddress},
-			{"agreement": "customer_agreement", "signed_at": now, "ip_address": ipAddress},
-			{"agreement": "crypto_agreement", "signed_at": now, "ip_address": ipAddress},
-		},
+		"agreements": func() []map[string]interface{} {
+			agreements := []map[string]interface{}{
+				{"agreement": "margin_agreement", "signed_at": now, "ip_address": ipAddress},
+				{"agreement": "account_agreement", "signed_at": now, "ip_address": ipAddress},
+				{"agreement": "customer_agreement", "signed_at": now, "ip_address": ipAddress},
+			}
+			// Include crypto_agreement only when crypto is in enabled assets (or no assets specified, which defaults to all).
+			if len(req.EnabledAssets) == 0 {
+				agreements = append(agreements, map[string]interface{}{"agreement": "crypto_agreement", "signed_at": now, "ip_address": ipAddress})
+			} else {
+				for _, a := range req.EnabledAssets {
+					if strings.EqualFold(a, "crypto") {
+						agreements = append(agreements, map[string]interface{}{"agreement": "crypto_agreement", "signed_at": now, "ip_address": ipAddress})
+						break
+					}
+				}
+			}
+			return agreements
+		}(),
 	}
 	if len(req.EnabledAssets) > 0 {
 		body["enabled_assets"] = req.EnabledAssets
@@ -366,13 +379,23 @@ func (p *Provider) CreateOrder(ctx context.Context, providerAccountID string, re
 		return nil, err
 	}
 
-	// Crypto-specific validation
+	// TIF validation for all asset classes
 	isCrypto := strings.Contains(req.Symbol, "/") || req.AssetClass == "crypto"
-	if isCrypto {
-		tif := strings.ToLower(req.TimeInForce)
-		if tif != "" && tif != "gtc" && tif != "ioc" {
-			return nil, fmt.Errorf("crypto orders only support TIF gtc or ioc, got %q", req.TimeInForce)
+	if req.TimeInForce != "" {
+		assetClass := req.AssetClass
+		if assetClass == "" && isCrypto {
+			assetClass = "crypto"
 		}
+		if assetClass == "" {
+			assetClass = "equity"
+		}
+		if err := types.ValidateTIF(assetClass, strings.ToLower(req.TimeInForce)); err != nil {
+			return nil, err
+		}
+	}
+
+	// Crypto-specific validation
+	if isCrypto {
 		if req.Notional != "" {
 			if n, _ := strconv.ParseFloat(req.Notional, 64); n > 200000 {
 				return nil, fmt.Errorf("crypto orders cannot exceed $200,000 notional (got $%.2f)", n)
@@ -386,6 +409,19 @@ func (p *Provider) CreateOrder(ctx context.Context, providerAccountID string, re
 		if req.Qty != "" {
 			if q, _ := strconv.ParseFloat(req.Qty, 64); q > 0 && q < 0.000000002 {
 				return nil, fmt.Errorf("crypto orders require minimum quantity 0.000000002 (got %v)", q)
+			}
+		}
+
+		// Non-marginable buying power pre-validation for crypto BUY orders.
+		// Crypto is non-marginable; reject if notional exceeds available buying power.
+		// Fail-open: if portfolio fetch fails, let Alpaca reject it downstream.
+		if strings.EqualFold(req.Side, "buy") && req.Notional != "" {
+			if portfolio, err := p.GetPortfolio(ctx, providerAccountID); err == nil && portfolio.NonMarginableBuyingPower != "" {
+				if bp, bpErr := strconv.ParseFloat(portfolio.NonMarginableBuyingPower, 64); bpErr == nil {
+					if n, nErr := strconv.ParseFloat(req.Notional, 64); nErr == nil && n > bp {
+						return nil, fmt.Errorf("crypto buy notional $%.2f exceeds non-marginable buying power $%.2f", n, bp)
+					}
+				}
 			}
 		}
 	}
