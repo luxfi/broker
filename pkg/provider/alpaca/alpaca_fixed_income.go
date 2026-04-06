@@ -211,6 +211,14 @@ func (p *Provider) CloseFixedIncomePosition(ctx context.Context, accountID, symb
 }
 
 // --- Fixed Income: Market Data (Checklist #13) ---
-// Market data for fixed income requires the Moment Terms of Service to be signed
-// before enabling. See Alpaca docs for Moment ToS agreement flow.
-// Once enabled, use the standard data API endpoints with fixed income symbols.
+// Market data for fixed income requires the Moment Terms of Service (Moment
+// is Alpaca's fixed income data vendor) to be signed before enabling.
+// See Alpaca docs for Moment ToS agreement flow.
+
+// GetFixedIncomeQuote returns market data for a fixed income instrument.
+// NOT IMPLEMENTED: Requires Moment ToS agreement to be signed with Alpaca.
+// Once Moment is enabled, replace this with calls to the standard data API
+// endpoints using the fixed income CUSIP as the symbol.
+func (p *Provider) GetFixedIncomeQuote(ctx context.Context, cusip string) (*types.MarketSnapshot, error) {
+	return nil, fmt.Errorf("fixed income market data not available: Moment ToS agreement required (CUSIP: %s)", cusip)
+}
