@@ -122,6 +122,13 @@ func RegisterFromEnv(registry *provider.Registry) int {
 		}))
 		slog.Info("provider registered", "name", "kraken")
 		n++
+	} else if os.Getenv("ENABLE_PUBLIC_DATA") != "" || os.Getenv("ENVIRONMENT") == "local" {
+		// Kraken public API works without keys for market data (read-only).
+		registry.Register(kraken.New(kraken.Config{
+			BaseURL: envOr("KRAKEN_BASE_URL", kraken.ProdURL),
+		}))
+		slog.Info("provider registered", "name", "kraken", "mode", "public-data")
+		n++
 	}
 
 	if key := os.Getenv("GEMINI_API_KEY"); key != "" {
@@ -131,6 +138,13 @@ func RegisterFromEnv(registry *provider.Registry) int {
 			APISecret: os.Getenv("GEMINI_API_SECRET"),
 		}))
 		slog.Info("provider registered", "name", "gemini")
+		n++
+	} else if os.Getenv("ENABLE_PUBLIC_DATA") != "" || os.Getenv("ENVIRONMENT") == "local" {
+		// Gemini public API works without keys for market data (read-only).
+		registry.Register(gemini.New(gemini.Config{
+			BaseURL: envOr("GEMINI_BASE_URL", gemini.ProdURL),
+		}))
+		slog.Info("provider registered", "name", "gemini", "mode", "public-data")
 		n++
 	}
 
