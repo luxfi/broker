@@ -2,6 +2,7 @@ package webhook
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -37,7 +38,7 @@ func (s *MemoryStore) ListByEvent(orgID, event string) ([]Webhook, error) {
 			continue
 		}
 		for _, ev := range wh.Events {
-			if ev == event || ev == "*" {
+			if matchEvent(ev, event) {
 				out = append(out, *wh)
 				break
 			}
@@ -121,4 +122,17 @@ func (s *MemoryStore) ListDeliveries(webhookID string, limit int) ([]Delivery, e
 		}
 	}
 	return out, nil
+}
+
+// matchEvent checks whether a subscription pattern matches a concrete event.
+// Supports exact match, wildcard "*", and prefix glob "order.*".
+func matchEvent(pattern, event string) bool {
+	if pattern == "*" || pattern == event {
+		return true
+	}
+	if strings.HasSuffix(pattern, ".*") {
+		prefix := strings.TrimSuffix(pattern, ".*")
+		return strings.HasPrefix(event, prefix+".")
+	}
+	return false
 }
