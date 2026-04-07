@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/luxfi/broker/pkg/taskqueue"
 	"github.com/rs/zerolog/log"
 )
 
@@ -58,6 +59,56 @@ func Deliver(store Store, orgID, eventType string, payload any) {
 
 	for _, wh := range hooks {
 		go deliver(store, wh, eventType, eventID, body)
+	}
+}
+
+// webhookTask is the payload enqueued to Hanzo Tasks for durable delivery.
+type webhookTask struct {
+	WebhookID string `json:"webhook_id"`
+	URL       string `json:"url"`
+	Secret    string `json:"secret"`
+	EventType string `json:"event_type"`
+	EventID   string `json:"event_id"`
+	Body      []byte `json:"body"`
+}
+
+// DeliverWithQueue sends a webhook event using the Hanzo Tasks durable queue
+// when tq is non-nil, falling back to direct goroutine delivery otherwise.
+func DeliverWithQueue(store Store, tq *taskqueue.Client, orgID, eventType string, payload any) {
+	if store == nil {
+		return
+	}
+
+	hooks, err := store.ListByEvent(orgID, eventType)
+	if err != nil || len(hooks) == 0 {
+		return
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		log.Error().Err(err).Str("event", eventType).Msg("webhook: marshal payload")
+		return
+	}
+
+	eventID := generateEventID()
+
+	for _, wh := range hooks {
+		if tq != nil {
+			task := webhookTask{
+				WebhookID: wh.ID,
+				URL:       wh.URL,
+				Secret:    wh.Secret,
+				EventType: eventType,
+				EventID:   eventID,
+				Body:      body,
+			}
+			if err := tq.Enqueue("webhook.deliver", task); err != nil {
+				log.Error().Err(err).Str("webhook", wh.ID).Msg("webhook: enqueue failed, falling back to direct")
+				go deliver(store, wh, eventType, eventID, body)
+			}
+		} else {
+			go deliver(store, wh, eventType, eventID, body)
+		}
 	}
 }
 
