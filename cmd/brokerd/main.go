@@ -22,6 +22,7 @@ import (
 	"github.com/luxfi/broker/pkg/provider"
 	"github.com/luxfi/broker/pkg/provider/envconfig"
 	"github.com/luxfi/broker/pkg/router"
+	"github.com/luxfi/broker/pkg/webhook"
 )
 
 func main() {
@@ -92,6 +93,10 @@ func main() {
 	scamDB := compliance.NewScamDB()
 	srv.Mount("/compliance", compliance.NewRouter(complianceStore, compliance.WithScamDB(scamDB), compliance.WithRegistry(registry)))
 	log.Info().Msg("Compliance routes mounted at /compliance")
+
+	webhookStore := webhook.NewMemoryStore()
+	srv.Mount("/webhooks", webhook.NewRouter(webhookStore))
+	log.Info().Msg("Webhook routes mounted at /webhooks")
 
 	// --- gRPC Server (optional) ---
 	grpcAddr := os.Getenv("BROKER_GRPC_LISTEN")
