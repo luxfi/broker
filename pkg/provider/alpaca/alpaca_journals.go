@@ -3,6 +3,7 @@ package alpaca
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/luxfi/broker/pkg/types"
@@ -99,6 +100,9 @@ func (p *Provider) DeleteJournal(ctx context.Context, journalID string) error {
 }
 
 func (p *Provider) CreateBatchJournal(ctx context.Context, req *types.BatchJournalRequest) ([]*types.Journal, error) {
+	if len(req.Entries) > 5000 {
+		return nil, fmt.Errorf("batch journal entries %d exceeds limit of 5000", len(req.Entries))
+	}
 	body := map[string]interface{}{
 		"entry_type":   req.EntryType,
 		"from_account": req.FromAccount,
