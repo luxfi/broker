@@ -42,12 +42,8 @@ var untrustedHeaders = []string{
 func Middleware(iamEndpoint string) func(http.Handler) http.Handler {
 	jwksURL := iamEndpoint + "/.well-known/jwks"
 
-	// Expected audience for the broker service. Defaults to the IAM endpoint
-	// (matching Casdoor's default aud behavior) unless overridden by env.
+	// Expected audience for the broker service. When set, JWT aud claim is required.
 	expectedAud := os.Getenv("BROKER_JWT_AUDIENCE")
-	if expectedAud == "" {
-		expectedAud = iamEndpoint
-	}
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -80,8 +76,8 @@ func Middleware(iamEndpoint string) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Validate audience contains the expected service identifier.
-			if !checkAudience(claims, expectedAud) {
+			// Validate audience when explicitly configured.
+			if expectedAud != "" && !checkAudience(claims, expectedAud) {
 				writeErr(w, http.StatusUnauthorized, "invalid token audience")
 				return
 			}
@@ -260,9 +256,8 @@ func ClaimStr(claims map[string]interface{}, key string) string {
 func checkAudience(claims map[string]interface{}, expected string) bool {
 	aud, ok := claims["aud"]
 	if !ok {
-		// No aud claim — accept for backward compatibility with tokens
-		// issued before aud enforcement was added.
-		return true
+		// Reject tokens without aud claim — defense in depth.
+		return false
 	}
 	switch v := aud.(type) {
 	case string:
