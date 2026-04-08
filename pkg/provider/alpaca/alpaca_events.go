@@ -65,7 +65,7 @@ func (p *Provider) StreamTradeEvents(ctx context.Context, since string) (<-chan 
 		case ch <- evt:
 		default:
 		}
-	})
+	}, func() { close(ch) })
 	if err != nil {
 		close(ch)
 		return nil, err
@@ -100,7 +100,7 @@ func (p *Provider) StreamAccountEvents(ctx context.Context, since string) (<-cha
 		}:
 		default:
 		}
-	})
+	}, func() { close(ch) })
 	if err != nil {
 		close(ch)
 		return nil, err
@@ -133,7 +133,7 @@ func (p *Provider) StreamTransferEvents(ctx context.Context, since string) (<-ch
 		}:
 		default:
 		}
-	})
+	}, func() { close(ch) })
 	if err != nil {
 		close(ch)
 		return nil, err
@@ -164,7 +164,7 @@ func (p *Provider) StreamJournalEvents(ctx context.Context, since string) (<-cha
 		}:
 		default:
 		}
-	})
+	}, func() { close(ch) })
 	if err != nil {
 		close(ch)
 		return nil, err
@@ -173,8 +173,7 @@ func (p *Provider) StreamJournalEvents(ctx context.Context, since string) (<-cha
 }
 
 // streamSSE connects to an Alpaca SSE endpoint and calls handler for each data line.
-// It runs in a goroutine and closes the channel when the context is cancelled.
-func (p *Provider) streamSSE(ctx context.Context, path string, handler func(data []byte)) error {
+func (p *Provider) streamSSE(ctx context.Context, path string, handler func(data []byte), cleanup func()) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.cfg.BaseURL+path, nil)
 	if err != nil {
 		return fmt.Errorf("create SSE request: %w", err)
@@ -193,6 +192,7 @@ func (p *Provider) streamSSE(ctx context.Context, path string, handler func(data
 	}
 
 	go func() {
+		defer cleanup()
 		defer resp.Body.Close()
 		scanner := bufio.NewScanner(resp.Body)
 		for scanner.Scan() {
