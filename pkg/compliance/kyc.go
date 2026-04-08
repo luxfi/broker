@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/luxfi/broker/pkg/webhook"
 	"github.com/rs/zerolog/log"
 )
 
@@ -30,8 +31,9 @@ type KYCProvider interface {
 
 // kycHandler holds KYC HTTP handler state.
 type kycHandler struct {
-	store    ComplianceStore
-	provider KYCProvider // nil if no external provider configured
+	store        ComplianceStore
+	provider     KYCProvider // nil if no external provider configured
+	webhookStore webhook.Store
 }
 
 func (h *kycHandler) handleVerify(w http.ResponseWriter, r *http.Request) {
@@ -78,6 +80,15 @@ func (h *kycHandler) handleVerify(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+
+	orgID := r.Header.Get("X-Org-Id")
+	webhook.Deliver(h.webhookStore, orgID, "kyc.submitted", map[string]interface{}{
+		"identity_id": ident.ID,
+		"user_id":     req.UserID,
+		"provider":    req.Provider,
+		"status":      string(ident.Status),
+	})
+
 	writeJSON(w, http.StatusCreated, ident)
 }
 
@@ -144,6 +155,21 @@ func (h *kycHandler) handleUpdateStatus(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+
+	orgID := r.Header.Get("X-Org-Id")
+	switch req.Status {
+	case KYCVerified:
+		webhook.Deliver(h.webhookStore, orgID, "kyc.approved", map[string]interface{}{
+			"identity_id": ident.ID,
+			"user_id":     ident.UserID,
+		})
+	case KYCFailed:
+		webhook.Deliver(h.webhookStore, orgID, "kyc.rejected", map[string]interface{}{
+			"identity_id": ident.ID,
+			"user_id":     ident.UserID,
+		})
+	}
+
 	writeJSON(w, http.StatusOK, ident)
 }
 

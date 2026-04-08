@@ -26,6 +26,17 @@ func (s *Server) handleDeposit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Verify the authenticated user owns the target account.
+	userID := r.Header.Get("X-User-Id")
+	if req.AccountID == "" || req.Provider == "" {
+		writeError(w, http.StatusBadRequest, "account_id and provider required")
+		return
+	}
+	if !s.resolver.OwnsAccount(userID, req.Provider, req.AccountID) {
+		writeError(w, http.StatusForbidden, "account access denied")
+		return
+	}
+
 	result, err := s.funding.Deposit(r.Context(), &req)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
@@ -47,6 +58,17 @@ func (s *Server) handleWithdraw(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Currency == "" {
 		writeError(w, http.StatusBadRequest, "currency required")
+		return
+	}
+
+	// Verify the authenticated user owns the target account.
+	userID := r.Header.Get("X-User-Id")
+	if req.AccountID == "" || req.Provider == "" {
+		writeError(w, http.StatusBadRequest, "account_id and provider required")
+		return
+	}
+	if !s.resolver.OwnsAccount(userID, req.Provider, req.AccountID) {
+		writeError(w, http.StatusForbidden, "account access denied")
 		return
 	}
 

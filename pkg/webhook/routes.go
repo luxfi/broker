@@ -4,7 +4,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -49,6 +53,10 @@ func (h *handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.URL == "" {
 		writeErr(w, http.StatusBadRequest, "url is required")
+		return
+	}
+	if err := validateWebhookURL(req.URL); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if len(req.Events) == 0 {
@@ -137,6 +145,48 @@ func (h *handler) handleListDeliveries(w http.ResponseWriter, r *http.Request) {
 		deliveries = []Delivery{}
 	}
 	writeJSON(w, http.StatusOK, deliveries)
+}
+
+// validateWebhookURL rejects URLs that could cause SSRF.
+// Requires HTTPS and blocks internal/private network targets.
+func validateWebhookURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid url")
+	}
+	if u.Scheme != "https" {
+		return fmt.Errorf("webhook url must use https")
+	}
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("webhook url must have a host")
+	}
+
+	// Block internal hostnames.
+	lower := strings.ToLower(host)
+	if lower == "localhost" ||
+		strings.HasSuffix(lower, ".local") ||
+		strings.HasSuffix(lower, ".internal") ||
+		strings.HasSuffix(lower, ".svc.cluster.local") {
+		return fmt.Errorf("webhook url must not target internal hosts")
+	}
+
+	// Resolve and block private/reserved IPs.
+	ips, err := net.LookupHost(host)
+	if err != nil {
+		return fmt.Errorf("webhook url host could not be resolved")
+	}
+	for _, ipStr := range ips {
+		ip := net.ParseIP(ipStr)
+		if ip == nil {
+			continue
+		}
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+			return fmt.Errorf("webhook url must not target private or reserved addresses")
+		}
+	}
+
+	return nil
 }
 
 func generateSecret() string {
