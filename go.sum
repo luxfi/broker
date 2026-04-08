@@ -17,6 +17,8 @@ github.com/jackc/puddle/v2 v2.2.2 h1:PR8nw+E/1w0GLuRFSmiioY6UooMp6KJv0/61nB7icHo
 github.com/jackc/puddle/v2 v2.2.2/go.mod h1:vriiEXHvEE654aYKXXjOvZM39qJ0q+azkZFrfEOc3H4=
 github.com/luxfi/compliance v0.2.1 h1:OKgRHlvNlYPydGRwblNM+61pho9KMZTdoR3/QKI3lVs=
 github.com/luxfi/compliance v0.2.1/go.mod h1:fKjNaafxNx9koHwmhlNN4L0aB9rDtgpYZ/sQxb3+wd8=
+github.com/luxfi/compliance v0.2.2 h1:vpiMmToCUBNAO3zhb5maUvBPpexZtdrUZwvrBofa+Hw=
+github.com/luxfi/compliance v0.2.2/go.mod h1:fKjNaafxNx9koHwmhlNN4L0aB9rDtgpYZ/sQxb3+wd8=
 github.com/mattn/go-colorable v0.1.14 h1:9A9LHSqF/7dyVVX6g0U9cwm9pG3kP9gSzcuIPHPsaIE=
 github.com/mattn/go-colorable v0.1.14/go.mod h1:6LmQG8QLFO4G5z1gPvYEzlUgJ2wF+stgPZH1UqBm1s8=
 github.com/mattn/go-isatty v0.0.20 h1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWEY=
