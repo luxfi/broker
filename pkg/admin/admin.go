@@ -5,17 +5,16 @@ package admin
 import (
 	"context"
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // contextKey is an unexported type for context keys in this package.
@@ -43,8 +42,7 @@ func RoleFromContext(ctx context.Context) string {
 // Admin represents an admin user with hashed credentials.
 type Admin struct {
 	Username     string    `json:"username"`
-	PasswordHash string    `json:"-"` // SHA-256 hash (bcrypt preferred in prod with x/crypto)
-	Salt         string    `json:"-"`
+	PasswordHash string    `json:"-"` // bcrypt hash
 	Role         string    `json:"role"` // super_admin, admin, reviewer
 	CreatedAt    time.Time `json:"created_at"`
 }
@@ -64,19 +62,19 @@ func NewStore(jwtSecret string) *Store {
 	}
 }
 
-// AddAdmin registers an admin user. Password is hashed before storage.
+// AddAdmin registers an admin user. Password is hashed with bcrypt before storage.
 func (s *Store) AddAdmin(username, password, role string) error {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	salt := make([]byte, 16)
-	rand.Read(salt)
-	saltHex := hex.EncodeToString(salt)
-
 	s.admins[username] = &Admin{
 		Username:     username,
-		PasswordHash: hashPassword(password, saltHex),
-		Salt:         saltHex,
+		PasswordHash: string(hash),
 		Role:         role,
 		CreatedAt:    time.Now(),
 	}
@@ -93,7 +91,7 @@ func (s *Store) Authenticate(username, password string) (string, error) {
 		return "", fmt.Errorf("invalid credentials")
 	}
 
-	if subtle.ConstantTimeCompare([]byte(hashPassword(password, admin.Salt)), []byte(admin.PasswordHash)) != 1 {
+	if err := bcrypt.CompareHashAndPassword([]byte(admin.PasswordHash), []byte(password)); err != nil {
 		return "", fmt.Errorf("invalid credentials")
 	}
 
@@ -204,14 +202,8 @@ func sign(data, secret []byte) string {
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
-func hashPassword(password, salt string) string {
-	key := []byte(salt + password)
-	for i := 0; i < 100_000; i++ {
-		h := sha256.Sum256(key)
-		key = h[:]
-	}
-	return hex.EncodeToString(key)
-}
+// hashPassword is kept only for backward-compatible token validation.
+// New passwords are always stored as bcrypt hashes via AddAdmin.
 
 // LoginHandler returns an http.HandlerFunc that accepts POST {username, password}
 // and returns {token: "jwt..."} on success.
