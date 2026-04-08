@@ -9,6 +9,7 @@ require (
 	github.com/jackc/pgx/v5 v5.9.1
 	github.com/luxfi/compliance v0.2.1
 	github.com/rs/zerolog v1.35.0
+	golang.org/x/crypto v0.49.0
 	google.golang.org/grpc v1.80.0
 )
 
