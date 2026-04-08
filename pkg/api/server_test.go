@@ -84,6 +84,16 @@ func setupTestServer(t *testing.T) *httptest.Server {
 	return httptest.NewServer(srv.Handler())
 }
 
+// setupTestServerWithRef returns both the httptest.Server and the broker Server
+// so tests can register account mappings for ownership verification.
+func setupTestServerWithRef(t *testing.T) (*httptest.Server, *Server) {
+	t.Helper()
+	t.Setenv("IAM_ENDPOINT", testJWKS.server.URL)
+	registry := provider.NewRegistry()
+	srv := NewServer(registry, ":0")
+	return httptest.NewServer(srv.Handler()), srv
+}
+
 // authedGet makes a GET request with a valid test JWT.
 func authedGet(url string) (*http.Response, error) {
 	req, _ := http.NewRequest("GET", url, nil)
