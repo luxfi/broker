@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -24,8 +25,8 @@ const (
 // Config for the Alpaca provider.
 type Config struct {
 	BaseURL   string `json:"base_url"`
-	APIKey    string `json:"api_key"`
-	APISecret string `json:"api_secret"`
+	APIKey    string `json:"-"`
+	APISecret string `json:"-"`
 }
 
 // Provider implements the broker Provider interface for Alpaca.
@@ -394,20 +395,53 @@ func (p *Provider) CreateOrder(ctx context.Context, providerAccountID string, re
 		}
 	}
 
+	// Overnight/extended hours enforcement for equities.
+	// Outside 9:30AM-4:00PM ET, equity orders must use TIF=day.
+	if !isCrypto && req.AssetClass != "fixed_income" {
+		et, _ := time.LoadLocation("America/New_York")
+		now := time.Now().In(et)
+		hour, min := now.Hour(), now.Minute()
+		marketOpen := hour > 9 || (hour == 9 && min >= 30)  // 9:30 AM
+		marketClose := hour < 16                              // 4:00 PM
+		isMarketHours := marketOpen && marketClose && now.Weekday() >= time.Monday && now.Weekday() <= time.Friday
+		if !isMarketHours {
+			tif := strings.ToLower(req.TimeInForce)
+			if tif != "day" && tif != "" {
+				return nil, fmt.Errorf("overnight equity orders require TIF=day (got %q)", req.TimeInForce)
+			}
+			if req.TimeInForce == "" {
+				req.TimeInForce = "day"
+			}
+			req.ExtendedHours = true
+		}
+	}
+
 	// Crypto-specific validation
 	if isCrypto {
 		if req.Notional != "" {
-			if n, _ := strconv.ParseFloat(req.Notional, 64); n > 200000 {
+			n, err := strconv.ParseFloat(req.Notional, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid notional value %q: %w", req.Notional, err)
+			}
+			if n <= 0 {
+				return nil, fmt.Errorf("crypto notional must be positive (got $%.2f)", n)
+			}
+			if n > 200000 {
 				return nil, fmt.Errorf("crypto orders cannot exceed $200,000 notional (got $%.2f)", n)
 			}
-			if strings.EqualFold(req.Side, "buy") {
-				if n, _ := strconv.ParseFloat(req.Notional, 64); n < 1.0 {
-					return nil, fmt.Errorf("crypto buy orders require minimum $1 notional (got $%.2f)", n)
-				}
+			if strings.EqualFold(req.Side, "buy") && n < 1.0 {
+				return nil, fmt.Errorf("crypto buy orders require minimum $1 notional (got $%.2f)", n)
 			}
 		}
 		if req.Qty != "" {
-			if q, _ := strconv.ParseFloat(req.Qty, 64); q > 0 && q < 0.000000002 {
+			q, err := strconv.ParseFloat(req.Qty, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid quantity value %q: %w", req.Qty, err)
+			}
+			if q <= 0 {
+				return nil, fmt.Errorf("crypto quantity must be positive (got %v)", q)
+			}
+			if q < 0.000000002 {
 				return nil, fmt.Errorf("crypto orders require minimum quantity 0.000000002 (got %v)", q)
 			}
 		}
@@ -981,7 +1015,7 @@ func (p *Provider) GetSnapshot(ctx context.Context, symbol string) (*types.Marke
 	if isCryptoSymbol(symbol) {
 		// Alpaca sandbox doesn't support the single crypto snapshot endpoint
 		// (/v1beta3/crypto/us/{sym}/snapshot returns 404). Use the batch endpoint instead.
-		path := "/v1beta3/crypto/us/snapshots?symbols=" + symbol
+		path := "/v1beta3/crypto/us/snapshots?symbols=" + url.QueryEscape(symbol)
 		data, _, err := p.doData(ctx, http.MethodGet, path)
 		if err != nil {
 			return nil, err
@@ -1020,7 +1054,7 @@ func (p *Provider) GetSnapshots(ctx context.Context, symbols []string) (map[stri
 	result := make(map[string]*types.MarketSnapshot)
 
 	if len(stocks) > 0 {
-		path := "/v2/stocks/snapshots?symbols=" + strings.Join(stocks, ",")
+		path := "/v2/stocks/snapshots?symbols=" + url.QueryEscape(strings.Join(stocks, ","))
 		data, _, err := p.doData(ctx, http.MethodGet, path)
 		if err != nil {
 			return nil, err
@@ -1039,7 +1073,7 @@ func (p *Provider) GetSnapshots(ctx context.Context, symbols []string) (map[stri
 	}
 
 	if len(cryptos) > 0 {
-		path := "/v1beta3/crypto/us/snapshots?symbols=" + strings.Join(cryptos, ",")
+		path := "/v1beta3/crypto/us/snapshots?symbols=" + url.QueryEscape(strings.Join(cryptos, ","))
 		data, _, err := p.doData(ctx, http.MethodGet, path)
 		if err != nil {
 			return nil, err
