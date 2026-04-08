@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -13,7 +14,7 @@ import (
 // --- CryptoDataProvider implementation ---
 
 func (p *Provider) GetCryptoBars(ctx context.Context, req *types.CryptoBarsRequest) (*types.BarsResponse, error) {
-	path := "/v1beta3/crypto/us/bars?symbols=" + strings.Join(req.Symbols, ",")
+	path := "/v1beta3/crypto/us/bars?symbols=" + url.QueryEscape(strings.Join(req.Symbols, ","))
 	if req.Timeframe != "" {
 		path += "&timeframe=" + req.Timeframe
 	}
@@ -74,7 +75,7 @@ func (p *Provider) GetCryptoBars(ctx context.Context, req *types.CryptoBarsReque
 }
 
 func (p *Provider) GetCryptoQuotes(ctx context.Context, req *types.CryptoQuotesRequest) (*types.QuotesResponse, error) {
-	path := "/v1beta3/crypto/us/quotes?symbols=" + strings.Join(req.Symbols, ",")
+	path := "/v1beta3/crypto/us/quotes?symbols=" + url.QueryEscape(strings.Join(req.Symbols, ","))
 	if req.Start != "" {
 		path += "&start=" + req.Start
 	}
@@ -126,7 +127,7 @@ func (p *Provider) GetCryptoQuotes(ctx context.Context, req *types.CryptoQuotesR
 }
 
 func (p *Provider) GetCryptoTrades(ctx context.Context, req *types.CryptoTradesRequest) (*types.TradesResponse, error) {
-	path := "/v1beta3/crypto/us/trades?symbols=" + strings.Join(req.Symbols, ",")
+	path := "/v1beta3/crypto/us/trades?symbols=" + url.QueryEscape(strings.Join(req.Symbols, ","))
 	if req.Start != "" {
 		path += "&start=" + req.Start
 	}

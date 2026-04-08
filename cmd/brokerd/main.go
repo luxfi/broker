@@ -17,7 +17,6 @@ import (
 	"github.com/luxfi/broker/pkg/compliance"
 	"github.com/luxfi/broker/pkg/db"
 	"github.com/luxfi/broker/pkg/funding"
-	brokergrpc "github.com/luxfi/broker/pkg/grpc"
 	"github.com/luxfi/broker/pkg/marketdata"
 	"github.com/luxfi/broker/pkg/provider"
 	"github.com/luxfi/broker/pkg/provider/envconfig"
@@ -98,27 +97,6 @@ func main() {
 	srv.Mount("/webhooks", webhook.NewRouter(webhookStore))
 	log.Info().Msg("Webhook routes mounted at /webhooks")
 
-	// --- gRPC Server (optional) ---
-	grpcAddr := os.Getenv("BROKER_GRPC_LISTEN")
-	var grpcSrv *brokergrpc.Server
-	if grpcAddr != "" {
-		var err error
-		grpcSrv, err = brokergrpc.NewServer(brokergrpc.Config{
-			ListenAddr:        grpcAddr,
-			IAMEndpoint:       envOr("IAM_ENDPOINT", "http://localhost:8000"),
-			Registry:          registry,
-			Router:            sor,
-			TWAPScheduler:     twapScheduler,
-			Feed:              feed,
-			ArbitrageDetector: arbDetector,
-		})
-		if err != nil {
-			log.Fatal().Err(err).Msg("Failed to create gRPC server")
-		}
-	} else {
-		log.Info().Msg("gRPC server disabled (set BROKER_GRPC_LISTEN to enable)")
-	}
-
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
@@ -153,24 +131,15 @@ func main() {
 		}
 	}()
 
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 1)
 	go func() {
 		log.Info().Str("addr", listenAddr).Strs("providers", registry.List()).Msg("Broker REST API starting")
 		errCh <- srv.Start()
 	}()
-	if grpcSrv != nil {
-		go func() {
-			log.Info().Str("addr", grpcAddr).Msg("Broker gRPC API starting")
-			errCh <- grpcSrv.Serve()
-		}()
-	}
 
 	select {
 	case <-ctx.Done():
 		log.Info().Msg("Shutting down...")
-		if grpcSrv != nil {
-			grpcSrv.Stop()
-		}
 		if err := srv.Shutdown(context.Background()); err != nil {
 			log.Error().Err(err).Msg("REST shutdown error")
 		}

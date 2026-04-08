@@ -42,8 +42,10 @@ func TestTWAPSchedulerStart(t *testing.T) {
 	if exec.ID == "" {
 		t.Fatal("expected non-empty execution ID")
 	}
-	if exec.Status != "running" {
-		t.Errorf("Status = %q, want 'running'", exec.Status)
+	// Read initial status via Get() snapshot to avoid race with goroutine.
+	initial, _ := scheduler.Get(exec.ID)
+	if initial.Status != "running" {
+		t.Errorf("Status = %q, want 'running'", initial.Status)
 	}
 
 	// Wait for completion.
