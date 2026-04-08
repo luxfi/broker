@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/luxfi/broker/pkg/auth"
 	"github.com/luxfi/broker/pkg/provider"
+	"github.com/luxfi/broker/pkg/webhook"
 	"github.com/luxfi/compliance/pkg/jube"
 )
 
@@ -19,9 +20,10 @@ import (
 type RouterOption func(*routerConfig)
 
 type routerConfig struct {
-	jubeClient *jube.Client
-	scamDB     *ScamDB
-	registry   *provider.Registry
+	jubeClient   *jube.Client
+	scamDB       *ScamDB
+	registry     *provider.Registry
+	webhookStore webhook.Store
 }
 
 // WithJubeClient adds the Jube AML sidecar client for live screening.
@@ -37,6 +39,11 @@ func WithScamDB(db *ScamDB) RouterOption {
 // WithRegistry adds the provider registry for post-approval account provisioning.
 func WithRegistry(r *provider.Registry) RouterOption {
 	return func(cfg *routerConfig) { cfg.registry = r }
+}
+
+// WithWebhookStore adds webhook delivery for compliance events.
+func WithWebhookStore(s webhook.Store) RouterOption {
+	return func(cfg *routerConfig) { cfg.webhookStore = s }
 }
 
 // NewRouter creates a chi sub-router with all compliance endpoints.
@@ -55,7 +62,7 @@ func NewRouter(store ComplianceStore, opts ...RouterOption) chi.Router {
 		opt(&cfg)
 	}
 
-	kyc := &kycHandler{store: store}
+	kyc := &kycHandler{store: store, webhookStore: cfg.webhookStore}
 	onboard := &onboardingHandler{store: store}
 	funds := &fundsHandler{store: store}
 	esign := &esignHandler{store: store}
@@ -67,8 +74,8 @@ func NewRouter(store ComplianceStore, opts ...RouterOption) chi.Router {
 	settings := &settingsHandler{store: store}
 	creds := &credentialsHandler{store: store}
 	billing := &billingHandler{}
-	aml := &amlHandler{store: store, jubeClient: cfg.jubeClient, scamDB: cfg.scamDB}
-	apps := &applicationHandler{store: store, registry: cfg.registry}
+	aml := &amlHandler{store: store, jubeClient: cfg.jubeClient, scamDB: cfg.scamDB, webhookStore: cfg.webhookStore}
+	apps := &applicationHandler{store: store, registry: cfg.registry, webhookStore: cfg.webhookStore}
 
 	// Compliance endpoints are restricted to the admin org (built-in).
 	// Customer orgs (liquidity, etc.) access the platform via the exchange app,

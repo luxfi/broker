@@ -6,15 +6,17 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/luxfi/broker/pkg/webhook"
 	"github.com/luxfi/compliance/pkg/jube"
 	"github.com/rs/zerolog/log"
 )
 
 // amlHandler holds AML screening HTTP handler state.
 type amlHandler struct {
-	store      ComplianceStore
-	jubeClient *jube.Client
-	scamDB     *ScamDB
+	store        ComplianceStore
+	jubeClient   *jube.Client
+	scamDB       *ScamDB
+	webhookStore webhook.Store
 }
 
 // handleScreen runs an AML screening for an account via the Jube sidecar.
@@ -79,6 +81,22 @@ func (h *amlHandler) handleScreen(w http.ResponseWriter, r *http.Request) {
 		log.Error().Err(err).Str("account", req.AccountID).Msg("aml: failed to save screening")
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
+	}
+
+	orgID := r.Header.Get("X-Org-Id")
+	switch screening.Status {
+	case AMLFlagged:
+		webhook.Deliver(h.webhookStore, orgID, "aml.flagged", map[string]interface{}{
+			"screening_id": screening.ID,
+			"account_id":   req.AccountID,
+			"risk_level":   string(screening.RiskLevel),
+			"risk_score":   screening.RiskScore,
+		})
+	case AMLCleared:
+		webhook.Deliver(h.webhookStore, orgID, "aml.cleared", map[string]interface{}{
+			"screening_id": screening.ID,
+			"account_id":   req.AccountID,
+		})
 	}
 
 	writeJSON(w, http.StatusCreated, screening)
@@ -155,6 +173,23 @@ func (h *amlHandler) handleReview(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.SaveAMLScreening(existing); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
+	}
+
+	orgID := r.Header.Get("X-Org-Id")
+	switch existing.Status {
+	case AMLCleared:
+		webhook.Deliver(h.webhookStore, orgID, "aml.cleared", map[string]interface{}{
+			"screening_id": existing.ID,
+			"account_id":   existing.AccountID,
+			"reviewed_by":  reviewer,
+		})
+	case AMLBlocked:
+		webhook.Deliver(h.webhookStore, orgID, "aml.flagged", map[string]interface{}{
+			"screening_id": existing.ID,
+			"account_id":   existing.AccountID,
+			"reviewed_by":  reviewer,
+			"decision":     "blocked",
+		})
 	}
 
 	writeJSON(w, http.StatusOK, existing)
@@ -357,6 +392,18 @@ func (h *amlHandler) handleRiskAssessment(w http.ResponseWriter, r *http.Request
 	if err := h.store.SaveAMLScreening(screening); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
+	}
+
+	orgID := r.Header.Get("X-Org-Id")
+	if screening.Status == AMLFlagged || screening.Status == AMLBlocked {
+		webhook.Deliver(h.webhookStore, orgID, "compliance.alert", map[string]interface{}{
+			"screening_id": screening.ID,
+			"account_id":   req.AccountID,
+			"type":         req.Type,
+			"risk_level":   string(screening.RiskLevel),
+			"risk_score":   screening.RiskScore,
+			"amount":       req.Amount,
+		})
 	}
 
 	writeJSON(w, http.StatusCreated, screening)
