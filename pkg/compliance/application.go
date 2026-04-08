@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/luxfi/broker/pkg/provider"
 	"github.com/luxfi/broker/pkg/types"
+	"github.com/luxfi/broker/pkg/webhook"
 	"github.com/luxfi/compliance/pkg/onboarding"
 	"github.com/rs/zerolog/log"
 )
@@ -36,8 +37,9 @@ func init() {
 
 // applicationHandler manages the 5-step investor onboarding flow.
 type applicationHandler struct {
-	store    ComplianceStore
-	registry *provider.Registry
+	store        ComplianceStore
+	registry     *provider.Registry
+	webhookStore webhook.Store
 }
 
 // newApplicationSteps delegates to the compliance library's canonical step definitions.
@@ -491,6 +493,22 @@ func (h *applicationHandler) handleReview(w http.ResponseWriter, r *http.Request
 	// On approval, provision Alpaca brokerage account asynchronously.
 	if app.Status == AppApproved && h.registry != nil {
 		go h.provisionAlpacaAccount(app)
+	}
+
+	orgID := r.Header.Get("X-Org-Id")
+	switch app.Status {
+	case AppApproved:
+		webhook.Deliver(h.webhookStore, orgID, "account.approved", map[string]interface{}{
+			"application_id": app.ID,
+			"user_id":        app.UserID,
+			"reviewed_by":    reviewer,
+		})
+	case AppRejected:
+		webhook.Deliver(h.webhookStore, orgID, "account.rejected", map[string]interface{}{
+			"application_id": app.ID,
+			"user_id":        app.UserID,
+			"reviewed_by":    reviewer,
+		})
 	}
 
 	writeJSON(w, http.StatusOK, app)

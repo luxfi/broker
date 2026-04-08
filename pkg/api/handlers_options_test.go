@@ -38,8 +38,11 @@ func TestOptionsChainRoute(t *testing.T) {
 }
 
 func TestOptionsOrderValidation(t *testing.T) {
-	ts := setupTestServer(t)
+	ts, srv := setupTestServerWithRef(t)
 	defer ts.Close()
+
+	// Register account ownership so the middleware passes.
+	srv.Resolver().SetMapping(testUserID, "test-org", "alpaca", "test-acct")
 
 	// Missing action field - should fail because provider not registered (400)
 	body := `{"symbol":"AAPL","contract_type":"call","strike":"150","expiration":"2026-04-18","qty":"1","order_type":"limit","limit_price":"5.50","time_in_force":"day"}`
@@ -54,8 +57,10 @@ func TestOptionsOrderValidation(t *testing.T) {
 }
 
 func TestMultiLegValidationTooFewLegs(t *testing.T) {
-	ts := setupTestServer(t)
+	ts, srv := setupTestServerWithRef(t)
 	defer ts.Close()
+
+	srv.Resolver().SetMapping(testUserID, "test-org", "alpaca", "test-acct")
 
 	body := `{"symbol":"AAPL","legs":[{"contract_type":"call","strike":"150","expiration":"2026-04-18","action":"buy_to_open","qty":"1"}],"order_type":"limit","time_in_force":"day"}`
 	resp, err := authedPost(ts.URL+"/v1/accounts/alpaca/test-acct/options/multi-leg", "application/json", strings.NewReader(body))
@@ -69,8 +74,10 @@ func TestMultiLegValidationTooFewLegs(t *testing.T) {
 }
 
 func TestExerciseValidation(t *testing.T) {
-	ts := setupTestServer(t)
+	ts, srv := setupTestServerWithRef(t)
 	defer ts.Close()
+
+	srv.Resolver().SetMapping(testUserID, "test-org", "alpaca", "test-acct")
 
 	// Missing contract_symbol
 	body := `{"qty":1}`
