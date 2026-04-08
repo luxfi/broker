@@ -98,7 +98,7 @@ func (s *TWAPScheduler) Start(ctx context.Context, cfg TWAPConfig, accountsByPro
 	s.executions[exec.ID] = exec
 	s.mu.Unlock()
 
-	go s.run(execCtx, exec, accountsByProvider)
+	go s.run(execCtx, exec, cfg, accountsByProvider)
 	return exec, nil
 }
 
@@ -123,7 +123,7 @@ func (s *TWAPScheduler) Cancel(id string) error {
 	return nil
 }
 
-// Get returns the current state of a TWAP execution.
+// Get returns a snapshot of the current state of a TWAP execution.
 func (s *TWAPScheduler) Get(id string) (*TWAPExecution, error) {
 	s.mu.Lock()
 	exec, ok := s.executions[id]
@@ -131,7 +131,21 @@ func (s *TWAPScheduler) Get(id string) (*TWAPExecution, error) {
 	if !ok {
 		return nil, fmt.Errorf("execution %s not found", id)
 	}
-	return exec, nil
+	exec.mu.Lock()
+	snapshot := &TWAPExecution{
+		ID:           exec.ID,
+		Config:       exec.Config,
+		Status:       exec.Status,
+		StartedAt:    exec.StartedAt,
+		CompletedAt:  exec.CompletedAt,
+		TotalFilled:  exec.TotalFilled,
+		SlicesFilled: exec.SlicesFilled,
+		VWAP:         exec.VWAP,
+		Legs:         make([]TWAPLeg, len(exec.Legs)),
+	}
+	copy(snapshot.Legs, exec.Legs)
+	exec.mu.Unlock()
+	return snapshot, nil
 }
 
 // List returns all TWAP executions.
@@ -145,8 +159,7 @@ func (s *TWAPScheduler) List() []*TWAPExecution {
 	return result
 }
 
-func (s *TWAPScheduler) run(ctx context.Context, exec *TWAPExecution, accounts map[string]string) {
-	cfg := exec.Config
+func (s *TWAPScheduler) run(ctx context.Context, exec *TWAPExecution, cfg TWAPConfig, accounts map[string]string) {
 	sliceQty := cfg.TotalQty / float64(cfg.Slices)
 	interval := cfg.Duration / time.Duration(cfg.Slices)
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -502,14 +503,17 @@ func buildOCCSymbol(underlying, expiration, contractType, strike string) (string
 	if err != nil {
 		return "", fmt.Errorf("invalid strike %q: %w", strike, err)
 	}
+	if strikeF <= 0 || strikeF >= 100000 {
+		return "", fmt.Errorf("strike %q out of OCC range (0, 100000)", strike)
+	}
 
 	typeChar := "C"
 	if strings.EqualFold(contractType, "put") {
 		typeChar = "P"
 	}
 
-	// OCC strike is price * 1000, zero-padded to 8 digits
-	strikeInt := int(strikeF * 1000)
+	// OCC strike is price * 1000, zero-padded to 8 digits. Round to avoid truncation.
+	strikeInt := int(math.Round(strikeF * 1000))
 	return fmt.Sprintf("%s%s%s%08d", strings.ToUpper(underlying), t.Format("060102"), typeChar, strikeInt), nil
 }
 
