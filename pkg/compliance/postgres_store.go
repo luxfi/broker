@@ -826,21 +826,22 @@ func (s *PostgresStore) SaveCredential(c *Credential) error {
 	}
 
 	_, err = s.pool.Exec(ctx, `
-		INSERT INTO credentials (id, name, key_prefix, permissions, created_at, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO credentials (id, name, key_prefix, key_hash, permissions, created_at, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (id) DO UPDATE SET
 			name = EXCLUDED.name,
 			key_prefix = EXCLUDED.key_prefix,
+			key_hash = EXCLUDED.key_hash,
 			permissions = EXCLUDED.permissions,
 			expires_at = EXCLUDED.expires_at
-	`, c.ID, c.Name, c.KeyPrefix, permsJSON, c.CreatedAt, c.ExpiresAt)
+	`, c.ID, c.Name, c.KeyPrefix, c.KeyHash, permsJSON, c.CreatedAt, c.ExpiresAt)
 	return err
 }
 
 func (s *PostgresStore) ListCredentials() []*Credential {
 	ctx := context.Background()
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, name, key_prefix, permissions, created_at, expires_at
+		SELECT id, name, key_prefix, COALESCE(key_hash, ''), permissions, created_at, expires_at
 		FROM credentials ORDER BY created_at DESC
 	`)
 	if err != nil {
@@ -852,7 +853,7 @@ func (s *PostgresStore) ListCredentials() []*Credential {
 	for rows.Next() {
 		var c Credential
 		var permsJSON []byte
-		if err := rows.Scan(&c.ID, &c.Name, &c.KeyPrefix, &permsJSON, &c.CreatedAt, &c.ExpiresAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.KeyPrefix, &c.KeyHash, &permsJSON, &c.CreatedAt, &c.ExpiresAt); err != nil {
 			continue
 		}
 		if len(permsJSON) > 0 {
