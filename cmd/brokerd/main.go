@@ -56,7 +56,7 @@ func main() {
 
 	fundingSvc := funding.New()
 
-	// SOR core components (shared between REST and gRPC)
+	// SOR core components
 	sor := router.New(registry)
 	twapScheduler := router.NewTWAPScheduler(registry, sor)
 	feed := marketdata.NewFeed()
