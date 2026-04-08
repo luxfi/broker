@@ -15,11 +15,12 @@ import (
 	"time"
 )
 
-// jwksCache caches the RSA public key from IAM JWKS.
+// jwksCache caches RSA public keys from IAM JWKS, keyed by kid.
 var (
-	jwksMu     sync.RWMutex
-	jwksKey    *rsa.PublicKey
-	jwksExpiry time.Time
+	jwksMu      sync.RWMutex
+	jwksKeys    map[string]*rsa.PublicKey
+	jwksExpiry  time.Time
+	jwksRefresh sync.Mutex // serializes refresh calls to prevent stampede
 )
 
 // untrustedHeaders are identity headers that must be stripped at the
@@ -165,21 +166,32 @@ func ValidateJWT(tokenStr, jwksURL string) (map[string]interface{}, error) {
 }
 
 func getJWKSKey(jwksURL, kid string) (*rsa.PublicKey, error) {
+	// Fast path: cache hit for this kid.
 	jwksMu.RLock()
-	if jwksKey != nil && time.Now().Before(jwksExpiry) {
-		jwksMu.RUnlock()
-		return jwksKey, nil
+	if jwksKeys != nil && time.Now().Before(jwksExpiry) {
+		if key, ok := jwksKeys[kid]; ok {
+			jwksMu.RUnlock()
+			return key, nil
+		}
 	}
 	jwksMu.RUnlock()
 
-	jwksMu.Lock()
-	defer jwksMu.Unlock()
-	if jwksKey != nil && time.Now().Before(jwksExpiry) {
-		return jwksKey, nil
+	// Serialize refresh calls to prevent stampede.
+	jwksRefresh.Lock()
+	// Double-check after acquiring lock.
+	jwksMu.RLock()
+	if jwksKeys != nil && time.Now().Before(jwksExpiry) {
+		if key, ok := jwksKeys[kid]; ok {
+			jwksMu.RUnlock()
+			jwksRefresh.Unlock()
+			return key, nil
+		}
 	}
+	jwksMu.RUnlock()
 
 	resp, err := http.Get(jwksURL)
 	if err != nil {
+		jwksRefresh.Unlock()
 		return nil, fmt.Errorf("fetch jwks: %w", err)
 	}
 	defer resp.Body.Close()
@@ -193,11 +205,13 @@ func getJWKSKey(jwksURL, kid string) (*rsa.PublicKey, error) {
 		} `json:"keys"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
+		jwksRefresh.Unlock()
 		return nil, fmt.Errorf("decode jwks: %w", err)
 	}
 
+	keys := make(map[string]*rsa.PublicKey, len(jwks.Keys))
 	for _, k := range jwks.Keys {
-		if k.Kty != "RSA" || (kid != "" && k.Kid != kid) {
+		if k.Kty != "RSA" {
 			continue
 		}
 		nBytes, err := base64.RawURLEncoding.DecodeString(k.N)
@@ -208,9 +222,16 @@ func getJWKSKey(jwksURL, kid string) (*rsa.PublicKey, error) {
 		if err != nil {
 			continue
 		}
-		key := &rsa.PublicKey{N: new(big.Int).SetBytes(nBytes), E: int(new(big.Int).SetBytes(eBytes).Int64())}
-		jwksKey = key
-		jwksExpiry = time.Now().Add(time.Hour)
+		keys[k.Kid] = &rsa.PublicKey{N: new(big.Int).SetBytes(nBytes), E: int(new(big.Int).SetBytes(eBytes).Int64())}
+	}
+
+	jwksMu.Lock()
+	jwksKeys = keys
+	jwksExpiry = time.Now().Add(time.Hour)
+	jwksMu.Unlock()
+	jwksRefresh.Unlock()
+
+	if key, ok := keys[kid]; ok {
 		return key, nil
 	}
 	return nil, fmt.Errorf("no key for kid=%s", kid)

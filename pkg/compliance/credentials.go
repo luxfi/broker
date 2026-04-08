@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // credentialsHandler manages API credential records for audit visibility.
@@ -43,10 +44,18 @@ func (h *credentialsHandler) handleCreateCredential(w http.ResponseWriter, r *ht
 	}
 	fullKey := hex.EncodeToString(keyBytes)
 
-	// Save a credential record (with key prefix only) in the compliance store.
+	// Hash the full key with bcrypt for later validation.
+	hash, err := bcrypt.GenerateFromPassword([]byte(fullKey), 12)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to hash key")
+		return
+	}
+
+	// Save a credential record with prefix + bcrypt hash.
 	cred := &Credential{
 		Name:        req.Name,
 		KeyPrefix:   fullKey[:8],
+		KeyHash:     string(hash),
 		Permissions: req.Permissions,
 	}
 	if err := h.store.SaveCredential(cred); err != nil {
@@ -63,6 +72,27 @@ func (h *credentialsHandler) handleCreateCredential(w http.ResponseWriter, r *ht
 		Key:        fullKey,
 	}
 	writeJSON(w, http.StatusCreated, resp)
+}
+
+// ValidateCredential checks a raw API key against all stored credentials.
+// Returns the matching credential if found, nil otherwise.
+func ValidateCredential(store ComplianceStore, rawKey string) *Credential {
+	if len(rawKey) < 8 {
+		return nil
+	}
+	prefix := rawKey[:8]
+	for _, cred := range store.ListCredentials() {
+		if cred.KeyPrefix != prefix {
+			continue
+		}
+		if cred.KeyHash == "" {
+			continue
+		}
+		if bcrypt.CompareHashAndPassword([]byte(cred.KeyHash), []byte(rawKey)) == nil {
+			return cred
+		}
+	}
+	return nil
 }
 
 func (h *credentialsHandler) handleDeleteCredential(w http.ResponseWriter, r *http.Request) {

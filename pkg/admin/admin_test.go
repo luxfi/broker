@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 const testSecret = "test-jwt-secret-32bytes-minimum!"
@@ -48,9 +50,6 @@ func TestAddAdmin_PasswordHashedNotPlaintext(t *testing.T) {
 	if admin.PasswordHash == "" {
 		t.Fatal("password hash is empty")
 	}
-	if admin.Salt == "" {
-		t.Fatal("salt is empty")
-	}
 	if admin.Username != "alice" {
 		t.Fatalf("username: got %q, want %q", admin.Username, "alice")
 	}
@@ -61,14 +60,13 @@ func TestAddAdmin_PasswordHashedNotPlaintext(t *testing.T) {
 		t.Fatal("CreatedAt is zero")
 	}
 
-	// Verify the hash is deterministic with the correct salt
-	expected := hashPassword(password, admin.Salt)
-	if admin.PasswordHash != expected {
-		t.Fatalf("hash mismatch: got %q, want %q", admin.PasswordHash, expected)
+	// Verify the hash is valid bcrypt
+	if err := bcrypt.CompareHashAndPassword([]byte(admin.PasswordHash), []byte(password)); err != nil {
+		t.Fatalf("bcrypt verification failed: %v", err)
 	}
 }
 
-func TestAddAdmin_UniqueSalts(t *testing.T) {
+func TestAddAdmin_UniqueHashes(t *testing.T) {
 	s := NewStore(testSecret)
 	s.AddAdmin("user1", "samepassword", "admin")
 	s.AddAdmin("user2", "samepassword", "admin")
@@ -76,12 +74,9 @@ func TestAddAdmin_UniqueSalts(t *testing.T) {
 	a1 := s.admins["user1"]
 	a2 := s.admins["user2"]
 
-	if a1.Salt == a2.Salt {
-		t.Fatal("two users have identical salts — salt generation is broken")
-	}
-	// Same password with different salts must produce different hashes
+	// bcrypt includes random salt — same password must produce different hashes
 	if a1.PasswordHash == a2.PasswordHash {
-		t.Fatal("same password produced same hash with different salts")
+		t.Fatal("same password produced same hash — bcrypt salt generation is broken")
 	}
 }
 
@@ -461,7 +456,6 @@ func TestPasswordHash_NeverStoredPlaintext(t *testing.T) {
 		"P@ssw0rd!",
 		"with spaces in it",
 		"unicode-密码-пароль",
-		"",
 	}
 
 	for i, pw := range passwords {
@@ -474,9 +468,9 @@ func TestPasswordHash_NeverStoredPlaintext(t *testing.T) {
 			t.Fatalf("CRITICAL: password %q stored as plaintext for user %s", pw, user)
 		}
 
-		// Verify the hash is a valid hex string (64 chars for SHA-256)
-		if pw != "" && len(admin.PasswordHash) != 64 {
-			t.Fatalf("hash length: got %d, want 64 hex chars", len(admin.PasswordHash))
+		// Verify bcrypt can validate it
+		if err := bcrypt.CompareHashAndPassword([]byte(admin.PasswordHash), []byte(pw)); err != nil {
+			t.Fatalf("bcrypt verification failed for user %s: %v", user, err)
 		}
 	}
 }

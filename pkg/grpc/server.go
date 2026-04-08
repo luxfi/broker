@@ -92,8 +92,10 @@ func NewServer(cfg Config) (*Server, error) {
 	healthSrv.SetServingStatus("broker.v1.BrokerService", healthpb.HealthCheckResponse_SERVING)
 	healthpb.RegisterHealthServer(grpcSrv, healthSrv)
 
-	// Enable reflection for grpcurl / grpc-client tooling.
-	reflection.Register(grpcSrv)
+	// Enable reflection only in dev mode — exposes full service schema.
+	if os.Getenv("DEV_MODE") == "true" {
+		reflection.Register(grpcSrv)
+	}
 
 	// Register our broker service. The actual generated RegisterBrokerServiceServer
 	// call goes here once protoc output is available. For now we use the

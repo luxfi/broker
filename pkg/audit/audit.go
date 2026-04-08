@@ -2,10 +2,17 @@ package audit
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"sync"
 	"time"
 )
+
+// maxEntries is the maximum number of audit entries held in memory.
+// When exceeded, the oldest half is evicted. In production, entries
+// are also persisted via hooks (e.g., to PostgreSQL) before eviction.
+const maxEntries = 100_000
 
 // Log provides an append-only audit trail for all trading operations.
 // Required for institutional compliance (SEC, FINRA, MiFID II).
@@ -79,7 +86,9 @@ func (l *Log) AddHook(h Hook) {
 	l.hooks = append(l.hooks, h)
 }
 
-// Record adds an audit entry.
+// Record adds an audit entry. If the in-memory log exceeds maxEntries,
+// the oldest half is evicted. Production deployments should register a
+// hook that persists entries to durable storage before eviction.
 func (l *Log) Record(e Entry) {
 	if e.Timestamp.IsZero() {
 		e.Timestamp = time.Now().UTC()
@@ -90,6 +99,12 @@ func (l *Log) Record(e Entry) {
 
 	l.mu.Lock()
 	l.entries = append(l.entries, e)
+	// Evict oldest half when capacity exceeded.
+	if len(l.entries) > maxEntries {
+		half := len(l.entries) / 2
+		copy(l.entries, l.entries[half:])
+		l.entries = l.entries[:len(l.entries)-half]
+	}
 	hooks := make([]Hook, len(l.hooks))
 	copy(hooks, l.hooks)
 	l.mu.Unlock()
@@ -212,5 +227,7 @@ func (l *Log) Stats() map[string]interface{} {
 }
 
 func generateID() string {
-	return time.Now().UTC().Format("20060102150405.000000")
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
