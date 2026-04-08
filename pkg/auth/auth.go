@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -40,6 +41,13 @@ var untrustedHeaders = []string{
 func Middleware(iamEndpoint string) func(http.Handler) http.Handler {
 	jwksURL := iamEndpoint + "/.well-known/jwks"
 
+	// Expected audience for the broker service. Defaults to the IAM endpoint
+	// (matching Casdoor's default aud behavior) unless overridden by env.
+	expectedAud := os.Getenv("BROKER_JWT_AUDIENCE")
+	if expectedAud == "" {
+		expectedAud = iamEndpoint
+	}
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Strip all identity headers unconditionally to prevent injection.
@@ -62,6 +70,18 @@ func Middleware(iamEndpoint string) func(http.Handler) http.Handler {
 			claims, err := ValidateJWT(strings.TrimPrefix(auth, "Bearer "), jwksURL)
 			if err != nil {
 				writeErr(w, http.StatusUnauthorized, "invalid token")
+				return
+			}
+
+			// Validate issuer matches the IAM endpoint.
+			if iss := ClaimStr(claims, "iss"); iss != "" && iss != iamEndpoint {
+				writeErr(w, http.StatusUnauthorized, "invalid token issuer")
+				return
+			}
+
+			// Validate audience contains the expected service identifier.
+			if !checkAudience(claims, expectedAud) {
+				writeErr(w, http.StatusUnauthorized, "invalid token audience")
 				return
 			}
 
@@ -212,6 +232,28 @@ func ClaimStr(claims map[string]interface{}, key string) string {
 		return v
 	}
 	return ""
+}
+
+// checkAudience verifies the JWT aud claim contains the expected audience.
+// Handles both string and []string aud formats per RFC 7519.
+func checkAudience(claims map[string]interface{}, expected string) bool {
+	aud, ok := claims["aud"]
+	if !ok {
+		// No aud claim — accept for backward compatibility with tokens
+		// issued before aud enforcement was added.
+		return true
+	}
+	switch v := aud.(type) {
+	case string:
+		return v == expected
+	case []interface{}:
+		for _, a := range v {
+			if s, ok := a.(string); ok && s == expected {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func writeErr(w http.ResponseWriter, code int, msg string) {

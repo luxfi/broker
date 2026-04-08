@@ -23,6 +23,7 @@ import (
 	"github.com/luxfi/broker/pkg/risk"
 	"github.com/luxfi/broker/pkg/router"
 	"github.com/luxfi/broker/pkg/types"
+	"github.com/luxfi/broker/pkg/webhook"
 	"github.com/luxfi/broker/pkg/ws"
 )
 
@@ -38,6 +39,7 @@ type Server struct {
 	twap                    *router.TWAPScheduler
 	arbDetector             *marketdata.ArbitrageDetector
 	arbDetectorThresholdBps float64
+	webhookStore            webhook.Store
 	router                  chi.Router
 	server                  *http.Server
 }
@@ -90,25 +92,84 @@ func NewServer(registry *provider.Registry, listenAddr string) *Server {
 
 		r.Get("/accounts", s.handleListAccounts)
 		r.Post("/accounts", s.handleCreateAccount)
-		r.Get("/accounts/{provider}/{accountId}", s.handleGetAccount)
-		r.Get("/accounts/{provider}/{accountId}/portfolio", s.handleGetPortfolio)
 
-		r.Get("/accounts/{provider}/{accountId}/orders", s.handleListOrders)
-		r.Post("/accounts/{provider}/{accountId}/orders", s.handleCreateOrder)
-		r.Delete("/accounts/{provider}/{accountId}/orders", s.handleCancelAllOrders)
-		r.Get("/accounts/{provider}/{accountId}/orders/{orderId}", s.handleGetOrder)
-		r.Patch("/accounts/{provider}/{accountId}/orders/{orderId}", s.handleReplaceOrder)
-		r.Delete("/accounts/{provider}/{accountId}/orders/{orderId}", s.handleCancelOrder)
+		// Account-scoped routes require ownership verification.
+		r.Route("/accounts/{provider}/{accountId}", func(r chi.Router) {
+		r.Use(s.requireAccountOwnership)
 
-		r.Get("/accounts/{provider}/{accountId}/positions/{symbol}", s.handleGetPosition)
-		r.Delete("/accounts/{provider}/{accountId}/positions/{symbol}", s.handleClosePosition)
-		r.Delete("/accounts/{provider}/{accountId}/positions", s.handleCloseAllPositions)
+		r.Get("/", s.handleGetAccount)
+		r.Get("/portfolio", s.handleGetPortfolio)
 
-		r.Get("/accounts/{provider}/{accountId}/transfers", s.handleListTransfers)
-		r.Post("/accounts/{provider}/{accountId}/transfers", s.handleCreateTransfer)
+		r.Get("/orders", s.handleListOrders)
+		r.Post("/orders", s.handleCreateOrder)
+		r.Delete("/orders", s.handleCancelAllOrders)
+		r.Get("/orders/{orderId}", s.handleGetOrder)
+		r.Patch("/orders/{orderId}", s.handleReplaceOrder)
+		r.Delete("/orders/{orderId}", s.handleCancelOrder)
 
-		r.Get("/accounts/{provider}/{accountId}/bank-relationships", s.handleListBankRelationships)
-		r.Post("/accounts/{provider}/{accountId}/bank-relationships", s.handleCreateBankRelationship)
+		r.Get("/positions/{symbol}", s.handleGetPosition)
+		r.Delete("/positions/{symbol}", s.handleClosePosition)
+		r.Delete("/positions", s.handleCloseAllPositions)
+
+		r.Get("/transfers", s.handleListTransfers)
+		r.Post("/transfers", s.handleCreateTransfer)
+
+		r.Get("/bank-relationships", s.handleListBankRelationships)
+		r.Post("/bank-relationships", s.handleCreateBankRelationship)
+
+		// Extended Account Management
+		r.Patch("/", s.handleUpdateAccount)
+		r.Delete("/", s.handleCloseAccount)
+		r.Get("/activities", s.handleGetAccountActivities)
+
+		// Documents
+		r.Post("/documents", s.handleUploadDocument)
+		r.Get("/documents", s.handleListDocuments)
+		r.Get("/documents/{documentId}", s.handleGetDocument)
+		r.Get("/documents/{documentId}/download", s.handleDownloadDocument)
+
+		// Transfer Extended (cancel, ACH delete, wire banks)
+		r.Delete("/transfers/{transferId}", s.handleCancelTransfer)
+		r.Delete("/ach-relationships/{achId}", s.handleDeleteACHRelationship)
+		r.Post("/recipient-banks", s.handleCreateRecipientBank)
+		r.Get("/recipient-banks", s.handleListRecipientBanks)
+		r.Delete("/recipient-banks/{bankId}", s.handleDeleteRecipientBank)
+
+		// ACATS Transfers
+		r.Post("/acats", s.handleCreateACATSTransfer)
+		r.Get("/acats", s.handleListACATSTransfers)
+		r.Get("/acats/{transferId}", s.handleGetACATSTransfer)
+		r.Delete("/acats/{transferId}", s.handleCancelACATSTransfer)
+
+		// Fixed Income
+		r.Post("/fixed-income/orders", s.handleCreateFixedIncomeOrder)
+		r.Get("/fixed-income/orders/{orderId}", s.handleGetFixedIncomeOrder)
+		r.Delete("/fixed-income/orders/{orderId}", s.handleCancelFixedIncomeOrder)
+		r.Get("/fixed-income/positions", s.handleGetFixedIncomePositions)
+		r.Delete("/fixed-income/positions/{symbol}", s.handleCloseFixedIncomePosition)
+
+		// Portfolio History
+		r.Get("/portfolio/history", s.handleGetPortfolioHistory)
+
+		// Watchlists
+		r.Post("/watchlists", s.handleCreateWatchlist)
+		r.Get("/watchlists", s.handleListWatchlists)
+		r.Get("/watchlists/{watchlistId}", s.handleGetWatchlist)
+		r.Put("/watchlists/{watchlistId}", s.handleUpdateWatchlist)
+		r.Delete("/watchlists/{watchlistId}", s.handleDeleteWatchlist)
+		r.Post("/watchlists/{watchlistId}/assets", s.handleAddWatchlistAsset)
+		r.Delete("/watchlists/{watchlistId}/{symbol}", s.handleRemoveWatchlistAsset)
+
+		// Options Trading (account-scoped)
+		r.Post("/options/orders", s.handleCreateOptionOrder)
+		r.Post("/options/multi-leg", s.handleCreateMultiLegOrder)
+		r.Post("/options/exercise", s.handleExerciseOption)
+		r.Post("/options/do-not-exercise", s.handleDoNotExercise)
+		r.Get("/options/positions", s.handleGetOptionPositions)
+		}) // end /accounts/{provider}/{accountId}
+
+		// ACATS disclosure is provider-scoped, not account-scoped.
+		r.Get("/accounts/{provider}/acats/disclosure", s.handleGetACATSDisclosure)
 
 		r.Get("/assets/{provider}", s.handleListAssets)
 		r.Get("/assets/{provider}/{symbolOrId}", s.handleGetAsset)
@@ -158,17 +219,6 @@ func NewServer(registry *provider.Registry, listenAddr string) *Server {
 			r.Get("/processors", s.handleListProcessors)
 		})
 
-		// Extended Account Management
-		r.Patch("/accounts/{provider}/{accountId}", s.handleUpdateAccount)
-		r.Delete("/accounts/{provider}/{accountId}", s.handleCloseAccount)
-		r.Get("/accounts/{provider}/{accountId}/activities", s.handleGetAccountActivities)
-
-		// Documents
-		r.Post("/accounts/{provider}/{accountId}/documents", s.handleUploadDocument)
-		r.Get("/accounts/{provider}/{accountId}/documents", s.handleListDocuments)
-		r.Get("/accounts/{provider}/{accountId}/documents/{documentId}", s.handleGetDocument)
-		r.Get("/accounts/{provider}/{accountId}/documents/{documentId}/download", s.handleDownloadDocument)
-
 		// Journals (inter-account transfers)
 		r.Post("/journals/{provider}", s.handleCreateJournal)
 		r.Get("/journals/{provider}", s.handleListJournals)
@@ -177,28 +227,9 @@ func NewServer(registry *provider.Registry, listenAddr string) *Server {
 		r.Post("/journals/{provider}/batch", s.handleCreateBatchJournal)
 		r.Post("/journals/{provider}/reverse_batch", s.handleReverseBatchJournal)
 
-		// Transfer Extended (cancel, ACH delete, wire banks)
-		r.Delete("/accounts/{provider}/{accountId}/transfers/{transferId}", s.handleCancelTransfer)
-		r.Delete("/accounts/{provider}/{accountId}/ach-relationships/{achId}", s.handleDeleteACHRelationship)
-		r.Post("/accounts/{provider}/{accountId}/recipient-banks", s.handleCreateRecipientBank)
-		r.Get("/accounts/{provider}/{accountId}/recipient-banks", s.handleListRecipientBanks)
-		r.Delete("/accounts/{provider}/{accountId}/recipient-banks/{bankId}", s.handleDeleteRecipientBank)
-
-		// ACATS Transfers
-		r.Get("/accounts/{provider}/acats/disclosure", s.handleGetACATSDisclosure)
-		r.Post("/accounts/{provider}/{accountId}/acats", s.handleCreateACATSTransfer)
-		r.Get("/accounts/{provider}/{accountId}/acats", s.handleListACATSTransfers)
-		r.Get("/accounts/{provider}/{accountId}/acats/{transferId}", s.handleGetACATSTransfer)
-		r.Delete("/accounts/{provider}/{accountId}/acats/{transferId}", s.handleCancelACATSTransfer)
-
-		// Fixed Income
+		// Fixed Income (non-account-scoped)
 		r.Get("/assets/fixed-income/corporates", s.handleListCorporateBonds)
 		r.Get("/assets/fixed-income/treasuries", s.handleListTreasuryBonds)
-		r.Post("/accounts/{provider}/{accountId}/fixed-income/orders", s.handleCreateFixedIncomeOrder)
-		r.Get("/accounts/{provider}/{accountId}/fixed-income/orders/{orderId}", s.handleGetFixedIncomeOrder)
-		r.Delete("/accounts/{provider}/{accountId}/fixed-income/orders/{orderId}", s.handleCancelFixedIncomeOrder)
-		r.Get("/accounts/{provider}/{accountId}/fixed-income/positions", s.handleGetFixedIncomePositions)
-		r.Delete("/accounts/{provider}/{accountId}/fixed-income/positions/{symbol}", s.handleCloseFixedIncomePosition)
 
 		// Crypto Market Data
 		r.Get("/market/{provider}/crypto/bars", s.handleGetCryptoBars)
@@ -206,35 +237,18 @@ func NewServer(registry *provider.Registry, listenAddr string) *Server {
 		r.Get("/market/{provider}/crypto/trades", s.handleGetCryptoTrades)
 		r.Get("/market/{provider}/crypto/snapshots", s.handleGetCryptoSnapshots)
 
-		// Portfolio History
-		r.Get("/accounts/{provider}/{accountId}/portfolio/history", s.handleGetPortfolioHistory)
-
-		// Watchlists
-		r.Post("/accounts/{provider}/{accountId}/watchlists", s.handleCreateWatchlist)
-		r.Get("/accounts/{provider}/{accountId}/watchlists", s.handleListWatchlists)
-		r.Get("/accounts/{provider}/{accountId}/watchlists/{watchlistId}", s.handleGetWatchlist)
-		r.Put("/accounts/{provider}/{accountId}/watchlists/{watchlistId}", s.handleUpdateWatchlist)
-		r.Delete("/accounts/{provider}/{accountId}/watchlists/{watchlistId}", s.handleDeleteWatchlist)
-		r.Post("/accounts/{provider}/{accountId}/watchlists/{watchlistId}/assets", s.handleAddWatchlistAsset)
-		r.Delete("/accounts/{provider}/{accountId}/watchlists/{watchlistId}/{symbol}", s.handleRemoveWatchlistAsset)
-
 		// Event Streaming (SSE)
 		r.Get("/events/{provider}/trades", s.handleStreamTradeEvents)
 		r.Get("/events/{provider}/accounts", s.handleStreamAccountEvents)
 		r.Get("/events/{provider}/transfers", s.handleStreamTransferEvents)
 		r.Get("/events/{provider}/journals", s.handleStreamJournalEvents)
 
-		// Options Trading
+		// Options Trading (non-account-scoped)
 		r.Get("/options/{provider}/expirations/{symbol}", s.handleGetOptionExpirations)
 		r.Get("/options/{provider}/chain/{symbol}", s.handleGetOptionChain)
 		r.Get("/options/{provider}/chain/{symbol}/{expiration}", s.handleGetOptionChain)
 		r.Get("/options/{provider}/quote/{contractSymbol}", s.handleGetOptionQuote)
 		r.Get("/options/{provider}/greeks/{contractSymbol}", s.handleGetOptionGreeks)
-		r.Post("/accounts/{provider}/{accountId}/options/orders", s.handleCreateOptionOrder)
-		r.Post("/accounts/{provider}/{accountId}/options/multi-leg", s.handleCreateMultiLegOrder)
-		r.Post("/accounts/{provider}/{accountId}/options/exercise", s.handleExerciseOption)
-		r.Post("/accounts/{provider}/{accountId}/options/do-not-exercise", s.handleDoNotExercise)
-		r.Get("/accounts/{provider}/{accountId}/options/positions", s.handleGetOptionPositions)
 		r.Get("/options/route", s.handleRouteOptionOrder)
 
 		// Exchange frontend API (provider-agnostic, user-resolved)
@@ -294,6 +308,15 @@ func (s *Server) SetTWAP(t *router.TWAPScheduler) {
 func (s *Server) SetArbitrageDetector(d *marketdata.ArbitrageDetector, thresholdBps float64) {
 	s.arbDetector = d
 	s.arbDetectorThresholdBps = thresholdBps
+}
+
+// SetWebhookStore attaches a webhook store for event delivery.
+// Also mounts webhook management routes at /v1/bd/webhooks.
+func (s *Server) SetWebhookStore(store webhook.Store) {
+	s.webhookStore = store
+	s.router.Route("/v1/bd/webhooks", func(r chi.Router) {
+		r.Mount("/", webhook.NewRouter(store))
+	})
 }
 
 // Handler returns the HTTP handler for testing.
@@ -408,6 +431,13 @@ func (s *Server) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 		Provider:  req.Provider,
 		AccountID: acct.ID,
 		Status:    "success",
+	})
+
+	orgID := r.Header.Get("X-Org-Id")
+	webhook.Deliver(s.webhookStore, orgID, "account.created", map[string]interface{}{
+		"account_id": acct.ID,
+		"provider":   req.Provider,
+		"status":     acct.Status,
 	})
 
 	writeJSON(w, http.StatusCreated, acct)
@@ -556,6 +586,17 @@ func (s *Server) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.riskEng.RecordOrder(providerName, accountID, estimatedValue)
+
+	webhook.Deliver(s.webhookStore, r.Header.Get("X-Org-Id"), "order.placed", map[string]interface{}{
+		"order_id":   order.ID,
+		"account_id": accountID,
+		"provider":   providerName,
+		"symbol":     req.Symbol,
+		"side":       req.Side,
+		"qty":        req.Qty,
+		"type":       req.Type,
+	})
+
 	writeJSON(w, http.StatusCreated, order)
 }
 
@@ -597,6 +638,13 @@ func (s *Server) handleCancelOrder(w http.ResponseWriter, r *http.Request) {
 	})
 
 	s.riskEng.RecordFill(providerName, accountID)
+
+	webhook.Deliver(s.webhookStore, r.Header.Get("X-Org-Id"), "order.canceled", map[string]interface{}{
+		"order_id":   orderID,
+		"account_id": accountID,
+		"provider":   providerName,
+	})
+
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 }
 
@@ -750,6 +798,15 @@ func (s *Server) handleCreateTransfer(w http.ResponseWriter, r *http.Request) {
 		AccountID: accountID,
 		Status:    "success",
 		Metadata:  map[string]interface{}{"type": req.Type, "direction": req.Direction, "amount": req.Amount},
+	})
+
+	webhook.Deliver(s.webhookStore, r.Header.Get("X-Org-Id"), "transfer.initiated", map[string]interface{}{
+		"transfer_id": transfer.ID,
+		"account_id":  accountID,
+		"provider":    providerName,
+		"type":        req.Type,
+		"direction":   req.Direction,
+		"amount":      req.Amount,
 	})
 
 	writeJSON(w, http.StatusCreated, transfer)
@@ -917,13 +974,12 @@ func (s *Server) handleGetSplitPlanPair(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleSmartOrder(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Symbol      string            `json:"symbol"`
-		Qty         string            `json:"qty"`
-		Side        string            `json:"side"`
-		Type        string            `json:"type"`
-		TimeInForce string            `json:"time_in_force"`
-		LimitPrice  string            `json:"limit_price,omitempty"`
-		Accounts    map[string]string `json:"accounts"` // provider -> accountID
+		Symbol      string `json:"symbol"`
+		Qty         string `json:"qty"`
+		Side        string `json:"side"`
+		Type        string `json:"type"`
+		TimeInForce string `json:"time_in_force"`
+		LimitPrice  string `json:"limit_price,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -937,8 +993,17 @@ func (s *Server) handleSmartOrder(w http.ResponseWriter, r *http.Request) {
 		req.TimeInForce = "day"
 	}
 
+	// Build accounts map server-side from authenticated user's resolver mappings.
+	// Never trust client-supplied account IDs.
+	userID := r.Header.Get("X-User-Id")
+	accounts := s.resolver.UserAccounts(userID)
+	if len(accounts) == 0 {
+		writeError(w, http.StatusBadRequest, "no trading accounts configured")
+		return
+	}
+
 	start := time.Now()
-	order, err := s.sor.SmartOrder(r.Context(), req.Accounts, &types.CreateOrderRequest{
+	order, err := s.sor.SmartOrder(r.Context(), accounts, &types.CreateOrderRequest{
 		Symbol:      req.Symbol,
 		Qty:         req.Qty,
 		Side:        req.Side,
@@ -969,13 +1034,20 @@ func (s *Server) handleSmartOrder(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleExecuteSplit(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Symbol   string            `json:"symbol"`
-		Qty      string            `json:"qty"`
-		Side     string            `json:"side"`
-		Accounts map[string]string `json:"accounts"` // provider -> accountID
+		Symbol string `json:"symbol"`
+		Qty    string `json:"qty"`
+		Side   string `json:"side"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	// Build accounts map server-side from authenticated user's resolver mappings.
+	userID := r.Header.Get("X-User-Id")
+	accounts := s.resolver.UserAccounts(userID)
+	if len(accounts) == 0 {
+		writeError(w, http.StatusBadRequest, "no trading accounts configured")
 		return
 	}
 
@@ -985,7 +1057,7 @@ func (s *Server) handleExecuteSplit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.sor.ExecuteSplitPlan(r.Context(), plan, req.Accounts)
+	result, err := s.sor.ExecuteSplitPlan(r.Context(), plan, accounts)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
@@ -1213,6 +1285,29 @@ func (s *Server) handleAuditExport(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", "attachment; filename=audit_export.json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(data)
+}
+
+// requireAccountOwnership is a chi middleware that verifies the authenticated
+// user owns the account identified by {provider}/{accountId} in the URL path.
+// Returns 403 if the user does not own the account.
+func (s *Server) requireAccountOwnership(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		userID := r.Header.Get("X-User-Id")
+		providerName := chi.URLParam(r, "provider")
+		accountID := chi.URLParam(r, "accountId")
+
+		if userID == "" || providerName == "" || accountID == "" {
+			writeError(w, http.StatusForbidden, "account access denied")
+			return
+		}
+
+		if !s.resolver.OwnsAccount(userID, providerName, accountID) {
+			writeError(w, http.StatusForbidden, "account access denied")
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // --- Helpers ---

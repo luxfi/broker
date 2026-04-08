@@ -90,6 +90,15 @@ func (r *Resolver) removeFromUserSlice(userID, providerName string) {
 	}
 }
 
+// OwnsAccount returns true if the given user owns the specified account on the provider.
+func (r *Resolver) OwnsAccount(userID, providerName, accountID string) bool {
+	resolved, ok := r.ResolveAccount(userID, providerName)
+	if !ok {
+		return false
+	}
+	return resolved == accountID
+}
+
 // ResolveAccount returns the provider account ID for a user+provider pair.
 func (r *Resolver) ResolveAccount(userID, providerName string) (string, bool) {
 	r.mu.RLock()
@@ -125,6 +134,23 @@ func (r *Resolver) ListMappings(userID string) []AccountMapping {
 	}
 	out := make([]AccountMapping, len(mappings))
 	copy(out, mappings)
+	return out
+}
+
+// UserAccounts returns a provider->accountID map for the given user.
+// Used to build the accounts parameter server-side for smart order routing.
+func (r *Resolver) UserAccounts(userID string) map[string]string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	mappings := r.byUser[userID]
+	if len(mappings) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(mappings))
+	for _, m := range mappings {
+		out[m.Provider] = m.AccountID
+	}
 	return out
 }
 
