@@ -147,6 +147,7 @@ var migrations = []migration{
 			id          TEXT PRIMARY KEY,
 			name        TEXT NOT NULL,
 			key_prefix  TEXT NOT NULL DEFAULT '',
+			key_hash    TEXT NOT NULL DEFAULT '',
 			permissions JSONB DEFAULT '[]',
 			created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
 			expires_at  TEXT NOT NULL DEFAULT ''
