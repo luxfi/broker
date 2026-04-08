@@ -7,7 +7,7 @@ require (
 	github.com/go-chi/cors v1.2.2
 	github.com/hanzoai/commerce v1.36.5
 	github.com/jackc/pgx/v5 v5.9.1
-	github.com/luxfi/compliance v0.2.1
+	github.com/luxfi/compliance v0.2.2
 	github.com/rs/zerolog v1.35.0
 	golang.org/x/crypto v0.49.0
 )
