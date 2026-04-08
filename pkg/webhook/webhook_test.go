@@ -173,7 +173,7 @@ func TestDeliver_WildcardSubscription(t *testing.T) {
 
 func TestVerifySignature(t *testing.T) {
 	payload := []byte(`{"event":"test"}`)
-	ts := "1700000000"
+	ts := fmt.Sprintf("%d", time.Now().Unix())
 	secret := "my-secret"
 
 	signatureBody := ts + "." + string(payload)
@@ -187,6 +187,14 @@ func TestVerifySignature(t *testing.T) {
 	}
 	if VerifySignature(payload, ts, sig, "wrong-secret") {
 		t.Error("wrong secret accepted")
+	}
+
+	// Stale timestamp must be rejected (replay protection).
+	staleTS := fmt.Sprintf("%d", time.Now().Add(-10*time.Minute).Unix())
+	staleBody := staleTS + "." + string(payload)
+	staleSig := "sha256=" + hmacSHA256(secret, staleBody)
+	if VerifySignature(payload, staleTS, staleSig, secret) {
+		t.Error("stale timestamp should be rejected")
 	}
 }
 
@@ -411,13 +419,17 @@ func TestDeliverWebhook_AllBDEvents(t *testing.T) {
 
 func TestDeliverWebhook_SignatureVerification(t *testing.T) {
 	secret := "verification-secret-key"
+	var mu sync.Mutex
 	var capturedBody []byte
 	var capturedTS, capturedSig string
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedBody, _ = io.ReadAll(r.Body)
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		capturedBody = body
 		capturedTS = r.Header.Get("X-Webhook-Timestamp")
 		capturedSig = r.Header.Get("X-Webhook-Signature")
+		mu.Unlock()
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -434,26 +446,38 @@ func TestDeliverWebhook_SignatureVerification(t *testing.T) {
 	Deliver(store, "org1", "order.placed", map[string]string{"order_id": "sig-test"})
 
 	deadline := time.Now().Add(5 * time.Second)
-	for capturedSig == "" && time.Now().Before(deadline) {
+	for {
+		mu.Lock()
+		sig := capturedSig
+		mu.Unlock()
+		if sig != "" || time.Now().After(deadline) {
+			break
+		}
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	if capturedSig == "" {
+	mu.Lock()
+	body := capturedBody
+	ts := capturedTS
+	sig := capturedSig
+	mu.Unlock()
+
+	if sig == "" {
 		t.Fatal("webhook was not delivered")
 	}
 
 	// The signature produced by Deliver must verify with VerifySignature.
-	if !VerifySignature(capturedBody, capturedTS, capturedSig, secret) {
+	if !VerifySignature(body, ts, sig, secret) {
 		t.Error("signature from Deliver does not pass VerifySignature")
 	}
 
 	// Wrong secret must fail.
-	if VerifySignature(capturedBody, capturedTS, capturedSig, "wrong-secret") {
+	if VerifySignature(body, ts, sig, "wrong-secret") {
 		t.Error("wrong secret should not verify")
 	}
 
 	// Tampered body must fail.
-	if VerifySignature([]byte(`{"tampered":true}`), capturedTS, capturedSig, secret) {
+	if VerifySignature([]byte(`{"tampered":true}`), ts, sig, secret) {
 		t.Error("tampered body should not verify")
 	}
 }
@@ -655,10 +679,14 @@ func TestTaskqueueFallback(t *testing.T) {
 }
 
 func TestDeliverWebhook_PayloadSerialization(t *testing.T) {
+	var mu sync.Mutex
 	var capturedBody []byte
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedBody, _ = io.ReadAll(r.Body)
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		capturedBody = body
+		mu.Unlock()
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -682,16 +710,27 @@ func TestDeliverWebhook_PayloadSerialization(t *testing.T) {
 	Deliver(store, "org1", "order.filled", payload)
 
 	deadline := time.Now().Add(5 * time.Second)
-	for capturedBody == nil && time.Now().Before(deadline) {
+	for {
+		mu.Lock()
+		body := capturedBody
+		mu.Unlock()
+		if body != nil || time.Now().After(deadline) {
+			break
+		}
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	if capturedBody == nil {
+	mu.Lock()
+	body := make([]byte, len(capturedBody))
+	copy(body, capturedBody)
+	mu.Unlock()
+
+	if body == nil {
 		t.Fatal("webhook was not delivered")
 	}
 
 	var decoded map[string]interface{}
-	if err := json.Unmarshal(capturedBody, &decoded); err != nil {
+	if err := json.Unmarshal(body, &decoded); err != nil {
 		t.Fatalf("payload is not valid JSON: %v", err)
 	}
 	if decoded["order_id"] != "ord_123" {
@@ -861,17 +900,16 @@ func TestWebhookRoutes_DeliveryHistory(t *testing.T) {
 	store := NewMemoryStore()
 	r := NewRouter(store)
 
-	// Create webhook via route.
-	body := fmt.Sprintf(`{"url":"%s","events":["order.placed"]}`, srv.URL)
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
-	req.Header.Set("X-Org-Id", "org1")
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	var created map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &created)
-	whID := created["id"].(string)
+	// Save webhook directly to bypass URL validation (test HTTP server is not HTTPS).
+	wh := &Webhook{
+		OrgID:  "org1",
+		URL:    srv.URL,
+		Secret: "test-secret",
+		Events: []string{"order.placed"},
+		Active: true,
+	}
+	store.Save(wh)
+	whID := wh.ID
 
 	// Fire 3 events.
 	for i := 0; i < 3; i++ {
@@ -888,9 +926,9 @@ func TestWebhookRoutes_DeliveryHistory(t *testing.T) {
 	}
 
 	// Query delivery history via route.
-	req = httptest.NewRequest(http.MethodGet, "/"+whID+"/deliveries", nil)
+	req := httptest.NewRequest(http.MethodGet, "/"+whID+"/deliveries", nil)
 	req.Header.Set("X-Org-Id", "org1")
-	w = httptest.NewRecorder()
+	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {

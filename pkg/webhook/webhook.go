@@ -16,6 +16,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/luxfi/broker/pkg/taskqueue"
@@ -200,9 +201,26 @@ func hmacSHA256(key, msg string) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
+// maxTimestampSkew is the maximum allowed age/future drift for webhook timestamps.
+const maxTimestampSkew = 5 * time.Minute
+
 // VerifySignature checks that a received signature matches the expected
-// HMAC-SHA256. Receivers of BD webhooks use this for validation.
+// HMAC-SHA256 and that the timestamp is within the allowed window.
+// Rejects replayed webhooks older than 5 minutes.
 func VerifySignature(payload []byte, timestamp, signature, secret string) bool {
+	// Validate timestamp freshness to prevent replay attacks.
+	ts, err := strconv.ParseInt(timestamp, 10, 64)
+	if err != nil {
+		return false
+	}
+	diff := time.Since(time.Unix(ts, 0))
+	if diff < 0 {
+		diff = -diff
+	}
+	if diff > maxTimestampSkew {
+		return false
+	}
+
 	signatureBody := timestamp + "." + string(payload)
 	expected := "sha256=" + hmacSHA256(secret, signatureBody)
 	return hmac.Equal([]byte(expected), []byte(signature))
