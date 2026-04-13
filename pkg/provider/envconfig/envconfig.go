@@ -21,6 +21,7 @@ import (
 	"github.com/luxfi/broker/pkg/provider/ibkr"
 	"github.com/luxfi/broker/pkg/provider/kraken"
 	"github.com/luxfi/broker/pkg/provider/lmax"
+	"github.com/luxfi/broker/pkg/provider/lx"
 	"github.com/luxfi/broker/pkg/provider/polygon"
 	"github.com/luxfi/broker/pkg/provider/sfox"
 	"github.com/luxfi/broker/pkg/provider/tradier"
@@ -32,6 +33,21 @@ import (
 // broker providers -- any ATS, BD, or TA can call this.
 func RegisterFromEnv(registry *provider.Registry) int {
 	n := 0
+
+	// Lux DEX (luxfi/dex precompile, ZAP transport) — first-class venue
+	// for any chain shipping the DEX precompile (Lux mainnet, Lux subnets,
+	// Liquidity L1). Auto-registers when LX_DEX_ADDR is set or
+	// ENVIRONMENT=local.
+	if addr := os.Getenv("LX_DEX_ADDR"); addr != "" || os.Getenv("ENVIRONMENT") == "local" {
+		registry.Register(lx.New(lx.Config{
+			DEXAddr:     envOr("LX_DEX_ADDR", lx.DefaultDEXAddr),
+			MPCAddr:     envOr("LX_MPC_ADDR", lx.DefaultMPCAddr),
+			USDLAddress: os.Getenv("LX_USDL_ADDR"),
+			RPCURL:      os.Getenv("LX_RPC_URL"),
+		}))
+		slog.Info("provider registered", "name", "lx", "transport", "zap")
+		n++
+	}
 
 	if key := os.Getenv("ALPACA_API_KEY"); key != "" {
 		registry.Register(alpaca.New(alpaca.Config{
