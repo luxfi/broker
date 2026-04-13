@@ -27,11 +27,20 @@ const (
 )
 
 // Config for the Alpaca OmniSub provider.
+//
+// Auth: supply EITHER (APIKey + APISecret) for legacy HTTP-Basic auth,
+// OR (ClientID + PrivateKeyPEM) for JWT-P-256 client-credentials. If both
+// are set, JWT takes precedence. JWT is the canonical post-2025 auth mode
+// and is required for newly-issued Alpaca partner credentials.
 type Config struct {
-	BaseURL           string `json:"base_url"`
-	APIKey            string `json:"-"`
-	APISecret         string `json:"-"`
-	OmnibusAccountID  string `json:"omnibus_account_id"`
+	BaseURL          string `json:"base_url"`
+	APIKey           string `json:"-"`
+	APISecret        string `json:"-"`
+	OmnibusAccountID string `json:"omnibus_account_id"`
+
+	// JWT-P-256 client credentials (Alpaca's canonical auth).
+	ClientID      string `json:"-"`
+	PrivateKeyPEM string `json:"-"`
 }
 
 // Provider implements the broker Provider interface for Alpaca OmniSub.
@@ -39,6 +48,7 @@ type Provider struct {
 	cfg     Config
 	client  *http.Client
 	dataURL string
+	jwt     *jwtSigner // nil when using legacy Basic auth
 }
 
 func New(cfg Config) *Provider {
@@ -49,13 +59,23 @@ func New(cfg Config) *Provider {
 	if strings.Contains(cfg.BaseURL, "sandbox") {
 		dataURL = DataSandboxURL
 	}
-	return &Provider{
+	p := &Provider{
 		cfg:     cfg,
 		dataURL: dataURL,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
 	}
+	if cfg.ClientID != "" && cfg.PrivateKeyPEM != "" {
+		signer, err := newJWTSigner(cfg.ClientID, cfg.PrivateKeyPEM, cfg.BaseURL, &http.Client{Timeout: 10 * time.Second})
+		if err != nil {
+			// Constructor can't return error per interface; log via panic in
+			// tests / early-boot. Callers should catch this at bootstrap.
+			panic(fmt.Sprintf("alpaca_omnisub: jwt signer init: %v", err))
+		}
+		p.jwt = signer
+	}
+	return p
 }
 
 func (p *Provider) Name() string { return "alpaca_omnisub" }
@@ -77,7 +97,17 @@ func (p *Provider) do(ctx context.Context, method, path string, body interface{}
 	if err != nil {
 		return nil, 0, err
 	}
-	req.SetBasicAuth(p.cfg.APIKey, p.cfg.APISecret)
+	// Unified auth: JWT Bearer when configured, else legacy HTTP-Basic.
+	// Both terminate at the same Broker API; only the auth header differs.
+	if p.jwt != nil {
+		tok, terr := p.jwt.Token(ctx)
+		if terr != nil {
+			return nil, 0, fmt.Errorf("alpaca_omnisub: get access token: %w", terr)
+		}
+		req.Header.Set("Authorization", "Bearer "+tok)
+	} else {
+		req.SetBasicAuth(p.cfg.APIKey, p.cfg.APISecret)
+	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := p.client.Do(req)
