@@ -9,6 +9,7 @@ import (
 	"github.com/luxfi/broker/pkg/provider"
 	"github.com/luxfi/broker/pkg/provider/apex"
 	"github.com/luxfi/broker/pkg/provider/alpaca"
+	"github.com/luxfi/broker/pkg/provider/alpaca_omnisub"
 	"github.com/luxfi/broker/pkg/provider/binance"
 	"github.com/luxfi/broker/pkg/provider/bitgo"
 	"github.com/luxfi/broker/pkg/provider/circle"
@@ -25,6 +26,14 @@ import (
 	"github.com/luxfi/broker/pkg/provider/polygon"
 	"github.com/luxfi/broker/pkg/provider/sfox"
 	"github.com/luxfi/broker/pkg/provider/tradier"
+
+	// International adapters
+	"github.com/luxfi/broker/pkg/provider/btgpactual"
+	"github.com/luxfi/broker/pkg/provider/ig"
+	"github.com/luxfi/broker/pkg/provider/questrade"
+	"github.com/luxfi/broker/pkg/provider/saxo"
+	"github.com/luxfi/broker/pkg/provider/stake"
+	"github.com/luxfi/broker/pkg/provider/zerodha"
 )
 
 // RegisterFromEnv reads provider environment variables and registers
@@ -43,7 +52,6 @@ func RegisterFromEnv(registry *provider.Registry) int {
 			DEXAddr:     envOr("LX_DEX_ADDR", lx.DefaultDEXAddr),
 			MPCAddr:     envOr("LX_MPC_ADDR", lx.DefaultMPCAddr),
 			USDLAddress: os.Getenv("LX_USDL_ADDR"),
-			RPCURL:      os.Getenv("LX_RPC_URL"),
 		}))
 		slog.Info("provider registered", "name", "lx", "transport", "zap")
 		n++
@@ -56,6 +64,17 @@ func RegisterFromEnv(registry *provider.Registry) int {
 			APISecret: os.Getenv("ALPACA_API_SECRET"),
 		}))
 		slog.Info("provider registered", "name", "alpaca")
+		n++
+	}
+
+	if key := os.Getenv("ALPACA_OMNISUB_API_KEY"); key != "" {
+		registry.Register(alpaca_omnisub.New(alpaca_omnisub.Config{
+			BaseURL:          envOr("ALPACA_OMNISUB_BASE_URL", alpaca_omnisub.SandboxURL),
+			APIKey:           key,
+			APISecret:        os.Getenv("ALPACA_OMNISUB_API_SECRET"),
+			OmnibusAccountID: os.Getenv("ALPACA_OMNISUB_OMNIBUS_ACCOUNT_ID"),
+		}))
+		slog.Info("provider registered", "name", "alpaca_omnisub")
 		n++
 	}
 
@@ -227,6 +246,73 @@ func RegisterFromEnv(registry *provider.Registry) int {
 		sandbox := os.Getenv("APEX_SANDBOX") == "true" || os.Getenv("APEX_SANDBOX") == "1"
 		registry.Register(apex.New(key, os.Getenv("APEX_API_SECRET"), sandbox))
 		slog.Info("provider registered", "name", "apex")
+		n++
+	}
+
+	// --- International adapters ---
+
+	if id := os.Getenv("BTG_CLIENT_ID"); id != "" {
+		registry.Register(btgpactual.New(btgpactual.Config{
+			BaseURL:      envOr("BTG_BASE_URL", btgpactual.SandboxURL),
+			ClientID:     id,
+			ClientSecret: os.Getenv("BTG_CLIENT_SECRET"),
+			AccountID:    os.Getenv("BTG_ACCOUNT_ID"),
+		}))
+		slog.Info("provider registered", "name", "btgpactual")
+		n++
+	}
+
+	if key := os.Getenv("IG_API_KEY"); key != "" {
+		registry.Register(ig.New(ig.Config{
+			BaseURL:   envOr("IG_BASE_URL", ig.DemoURL),
+			APIKey:    key,
+			Username:  os.Getenv("IG_USERNAME"),
+			Password:  os.Getenv("IG_PASSWORD"),
+			AccountID: os.Getenv("IG_ACCOUNT_ID"),
+		}))
+		slog.Info("provider registered", "name", "ig")
+		n++
+	}
+
+	if key := os.Getenv("ZERODHA_API_KEY"); key != "" {
+		registry.Register(zerodha.New(zerodha.Config{
+			BaseURL:   envOr("ZERODHA_BASE_URL", zerodha.ProdURL),
+			APIKey:    key,
+			APISecret: os.Getenv("ZERODHA_API_SECRET"),
+		}))
+		slog.Info("provider registered", "name", "zerodha")
+		n++
+	}
+
+	if token := os.Getenv("SAXO_ACCESS_TOKEN"); token != "" {
+		registry.Register(saxo.New(saxo.Config{
+			BaseURL:      envOr("SAXO_BASE_URL", saxo.SimURL),
+			AccessToken:  token,
+			ClientID:     os.Getenv("SAXO_CLIENT_ID"),
+			ClientSecret: os.Getenv("SAXO_CLIENT_SECRET"),
+			AccountKey:   os.Getenv("SAXO_ACCOUNT_KEY"),
+		}))
+		slog.Info("provider registered", "name", "saxo")
+		n++
+	}
+
+	if token := os.Getenv("QUESTRADE_REFRESH_TOKEN"); token != "" {
+		registry.Register(questrade.New(questrade.Config{
+			BaseURL:      envOr("QUESTRADE_BASE_URL", questrade.ProdURL),
+			RefreshToken: token,
+			AccountID:    os.Getenv("QUESTRADE_ACCOUNT_ID"),
+		}))
+		slog.Info("provider registered", "name", "questrade")
+		n++
+	}
+
+	if key := os.Getenv("STAKE_API_KEY"); key != "" {
+		registry.Register(stake.New(stake.Config{
+			BaseURL:   envOr("STAKE_BASE_URL", stake.ProdURL),
+			APIKey:    key,
+			APISecret: os.Getenv("STAKE_API_SECRET"),
+		}))
+		slog.Info("provider registered", "name", "stake")
 		n++
 	}
 
