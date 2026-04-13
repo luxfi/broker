@@ -1,11 +1,10 @@
 // Package lx is the broker provider for the on-chain Lux DEX
-// (luxfi/dex precompile + ZAP RPC). It works against any chain that
-// ships the DEX precompile -- Lux mainnet, Lux subnets, Liquidity L1.
+// (luxfi/dex precompile + native ZAP transport). Works against any chain
+// that ships the DEX precompile -- Lux mainnet, Lux subnets, Liquidity L1.
 //
-// Transport is luxfi/zap (zero-copy binary RPC over TCP). The DEX
-// exposes a ZAP listener; we connect, dial direct (no mDNS), and call
-// opcodes for orderbook reads + signed order writes. JSON-RPC and gRPC
-// are not used.
+// Transport is luxfi/zap: zero-copy binary RPC over TCP with opcode
+// dispatch via message flags. No JSON, no gRPC, no HTTP. Every request
+// and response has a fixed schema defined in schema.go.
 //
 // The smart order router prefers `lx` over external venues for any
 // symbol with on-chain depth.
@@ -13,14 +12,12 @@
 // Required env vars:
 //
 //	LX_DEX_ADDR    DEX ZAP endpoint (e.g. dex.chain.svc.cluster.local:6336)
-//	LX_RPC_URL     fallback EVM JSON-RPC for chain reads (optional)
-//	LX_USDL_ADDR   USDL ERC-20 address (chain-specific, optional)
 //	LX_MPC_ADDR    MPC ZAP endpoint (e.g. mpc.liquid-mpc.svc:6337)
+//	LX_USDL_ADDR   USDL ERC-20 address (chain-specific, optional)
 package lx
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -32,34 +29,11 @@ import (
 )
 
 const (
-	// DefaultDEXAddr is the in-cluster DEX ZAP listener.
 	DefaultDEXAddr = "dex.chain.svc.cluster.local:6336"
-	// DefaultMPCAddr is the in-cluster MPC ZAP listener.
 	DefaultMPCAddr = "mpc.liquid-mpc.svc.cluster.local:6337"
-	// DefaultRPCURL is the in-cluster gateway (used only for read fallback).
-	DefaultRPCURL = "http://gateway.chain.svc.cluster.local:8080"
 
-	// Service identifiers for ZAP discovery.
 	dexServiceType = "_luxdex._tcp"
 	dexPeerID      = "luxdex"
-	mpcPeerID      = "luxmpc"
-)
-
-// DEX RPC opcodes — must match the dex-server ZAP handler table.
-const (
-	OpListAssets    uint16 = 0x01
-	OpGetAsset      uint16 = 0x02
-	OpGetSnapshot   uint16 = 0x10
-	OpGetSnapshots  uint16 = 0x11
-	OpGetBars       uint16 = 0x12
-	OpGetQuotes     uint16 = 0x13
-	OpGetTrades     uint16 = 0x14
-	OpGetBook       uint16 = 0x15
-	OpCreateOrder   uint16 = 0x20
-	OpCancelOrder   uint16 = 0x21
-	OpGetOrder      uint16 = 0x22
-	OpListOrders    uint16 = 0x23
-	OpGetPortfolio  uint16 = 0x30
 )
 
 // Compile-time interface assertion.
@@ -67,32 +41,24 @@ var _ provider.Provider = (*Provider)(nil)
 
 // Config wires the provider to the chain + signing service.
 type Config struct {
-	// DEXAddr is the ZAP listener for the DEX precompile RPC.
-	DEXAddr string
-	// MPCAddr is the ZAP listener for the MPC signing service.
-	MPCAddr string
-	// USDLAddress is the chain-local USDL ERC-20 contract.
+	DEXAddr     string
+	MPCAddr     string
 	USDLAddress string
-	// RPCURL is an optional EVM JSON-RPC fallback for read paths
-	// when ZAP is unreachable. Empty disables the fallback.
-	RPCURL string
-	// NodeID names this client in ZAP discovery + logs.
-	NodeID string
-	// Logger receives ZAP transport logs. nil falls back to slog.Default().
-	Logger *slog.Logger
+	NodeID      string
+	Logger      *slog.Logger
 }
 
-// Provider implements broker.Provider using ZAP transport to the on-chain
-// DEX precompile. Reads call OpGet*; writes go through MPC for signing.
+// Provider implements broker.Provider using native ZAP transport to the
+// on-chain DEX precompile. Every RPC is a zero-copy ZAP message pair.
 type Provider struct {
 	cfg Config
 
 	mu      sync.Mutex
-	dexNode *zap.Node // lazy-started on first call
+	dexNode *zap.Node
 }
 
 // New returns a configured DEX provider. Zero-valued fields fall back to
-// safe defaults so this is always callable.
+// safe defaults.
 func New(cfg Config) *Provider {
 	if cfg.DEXAddr == "" {
 		cfg.DEXAddr = DefaultDEXAddr
@@ -109,11 +75,11 @@ func New(cfg Config) *Provider {
 	return &Provider{cfg: cfg}
 }
 
-// Name is the registry key. The router uses this to address the provider.
+// Name is the registry key.
 func (p *Provider) Name() string { return "lx" }
 
-// dial establishes the ZAP client node + direct connection on first use.
-// Subsequent calls reuse the open connection.
+// dial lazily starts the ZAP node + direct connection on first use and
+// reuses the open connection on subsequent calls.
 func (p *Provider) dial() (*zap.Node, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -149,55 +115,48 @@ func (p *Provider) Close() error {
 	return nil
 }
 
-// call performs a ZAP request/response round-trip against the DEX, with
-// the JSON-encoded request body in field 0 and an opcode in flags upper
-// 8 bits. This matches the ledger replication wire format.
-func (p *Provider) call(ctx context.Context, op uint16, req any, out any) error {
+// call performs a ZAP request/response round-trip. The request message is
+// already built by the caller (with opcode + status in flags). On success
+// the response Message is returned; on protocol-level error the decoded
+// ErrorResp is surfaced as a Go error.
+func (p *Provider) call(ctx context.Context, reqBytes []byte) (*zap.Message, error) {
 	node, err := p.dial()
 	if err != nil {
-		return err
+		return nil, err
 	}
-
-	var payload []byte
-	if req != nil {
-		payload, err = json.Marshal(req)
-		if err != nil {
-			return fmt.Errorf("lx: marshal request: %w", err)
-		}
-	}
-
-	b := zap.NewBuilder(len(payload) + 64)
-	obj := b.StartObject(8)
-	obj.SetBytes(0, payload)
-	obj.FinishAsRoot()
-	msgBytes := b.FinishWithFlags(uint16(op) << 8)
-
-	msg, err := zap.Parse(msgBytes)
+	msg, err := zap.Parse(reqBytes)
 	if err != nil {
-		return fmt.Errorf("lx: build message: %w", err)
+		return nil, fmt.Errorf("lx: build request: %w", err)
 	}
-
 	resp, err := node.Call(ctx, dexPeerID, msg)
 	if err != nil {
-		return fmt.Errorf("lx: call op=0x%02x: %w", op, err)
+		return nil, fmt.Errorf("lx: call: %w", err)
 	}
-	if out == nil {
-		return nil
+	_, status := unpackFlags(resp.Flags())
+	if status != StatusOK {
+		code, message := readError(resp.Root())
+		return nil, &RPCError{Code: code, Message: message}
 	}
-	respPayload := resp.Root().Bytes(0)
-	if len(respPayload) == 0 {
-		return nil
+	return resp, nil
+}
+
+// RPCError is surfaced when the DEX responds with a non-OK status flag.
+type RPCError struct {
+	Code    string
+	Message string
+}
+
+func (e *RPCError) Error() string {
+	if e.Code == "" {
+		return e.Message
 	}
-	if err := json.Unmarshal(respPayload, out); err != nil {
-		return fmt.Errorf("lx: decode response: %w", err)
-	}
-	return nil
+	return fmt.Sprintf("%s: %s", e.Code, e.Message)
 }
 
 // ── Accounts ───────────────────────────────────────────────────────────
 // On-chain accounts are EVM addresses derived by MPC keygen. The lx
-// provider does not own the user lifecycle; CreateAccount returns an
-// explicit error so the caller routes through MPC instead.
+// provider doesn't own the user lifecycle — CreateAccount returns an
+// explicit error so callers route through MPC.
 
 func (p *Provider) CreateAccount(ctx context.Context, req *types.CreateAccountRequest) (*types.Account, error) {
 	return nil, fmt.Errorf("lx: account creation handled by MPC keygen")
@@ -214,58 +173,58 @@ func (p *Provider) ListAccounts(ctx context.Context) ([]*types.Account, error) {
 // ── Portfolio & Positions ──────────────────────────────────────────────
 
 func (p *Provider) GetPortfolio(ctx context.Context, providerAccountID string) (*types.Portfolio, error) {
-	var out types.Portfolio
-	req := map[string]string{"account": providerAccountID}
-	if err := p.call(ctx, OpGetPortfolio, req, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return nil, fmt.Errorf("lx: GetPortfolio wire schema not yet defined")
 }
 
 // ── Orders ─────────────────────────────────────────────────────────────
-// Order writes flow through MPC: the DEX-side handler receives the order
-// intent, calls MPC for signing, and broadcasts the signed tx.
 
 func (p *Provider) CreateOrder(ctx context.Context, providerAccountID string, req *types.CreateOrderRequest) (*types.Order, error) {
-	var out types.Order
-	body := struct {
-		Account string                     `json:"account"`
-		Order   *types.CreateOrderRequest  `json:"order"`
-	}{providerAccountID, req}
-	if err := p.call(ctx, OpCreateOrder, body, &out); err != nil {
+	msg := buildCreateOrderReq(createOrderReq{
+		account:    providerAccountID,
+		symbol:     req.Symbol,
+		side:       req.Side,
+		orderType:  req.Type,
+		tif:        req.TimeInForce,
+		clientID:   req.ClientOrderID,
+		qty:        parseFloat(req.Qty),
+		notional:   parseFloat(req.Notional),
+		limitPrice: parseFloat(req.LimitPrice),
+		stopPrice:  parseFloat(req.StopPrice),
+	})
+	resp, err := p.call(ctx, msg)
+	if err != nil {
 		return nil, err
 	}
-	return &out, nil
+	o := readOrderRoot(resp.Root())
+	return orderToType(o), nil
 }
 
 func (p *Provider) ListOrders(ctx context.Context, providerAccountID string) ([]*types.Order, error) {
-	var out []*types.Order
-	req := map[string]string{"account": providerAccountID}
-	if err := p.call(ctx, OpListOrders, req, &out); err != nil {
-		return nil, err
-	}
-	return out, nil
+	// List responses not yet defined (list-of-object schema in progress).
+	// Use provider-native GetOrder for now.
+	return nil, fmt.Errorf("lx: ListOrders wire schema not yet defined")
 }
 
 func (p *Provider) GetOrder(ctx context.Context, providerAccountID, providerOrderID string) (*types.Order, error) {
-	var out types.Order
-	req := map[string]string{"account": providerAccountID, "order": providerOrderID}
-	if err := p.call(ctx, OpGetOrder, req, &out); err != nil {
+	msg := buildAccountOrderReq(OpGetOrder, providerAccountID, providerOrderID)
+	resp, err := p.call(ctx, msg)
+	if err != nil {
 		return nil, err
 	}
-	return &out, nil
+	return orderToType(readOrderRoot(resp.Root())), nil
 }
 
 func (p *Provider) CancelOrder(ctx context.Context, providerAccountID, providerOrderID string) error {
-	req := map[string]string{"account": providerAccountID, "order": providerOrderID}
-	return p.call(ctx, OpCancelOrder, req, nil)
+	msg := buildAccountOrderReq(OpCancelOrder, providerAccountID, providerOrderID)
+	_, err := p.call(ctx, msg)
+	return err
 }
 
 // ── Transfers / Banks ──────────────────────────────────────────────────
 // Fiat rails live elsewhere (Lux Bank). The DEX provider is on-chain only.
 
 func (p *Provider) CreateTransfer(ctx context.Context, providerAccountID string, req *types.CreateTransferRequest) (*types.Transfer, error) {
-	return nil, fmt.Errorf("lx: transfers handled by treasury, not provider")
+	return nil, fmt.Errorf("lx: transfers handled by treasury")
 }
 
 func (p *Provider) ListTransfers(ctx context.Context, providerAccountID string) ([]*types.Transfer, error) {
@@ -283,73 +242,73 @@ func (p *Provider) ListBankRelationships(ctx context.Context, providerAccountID 
 // ── Assets ─────────────────────────────────────────────────────────────
 
 func (p *Provider) ListAssets(ctx context.Context, class string) ([]*types.Asset, error) {
-	var out []*types.Asset
-	req := map[string]string{"class": class}
-	if err := p.call(ctx, OpListAssets, req, &out); err != nil {
-		return nil, err
-	}
-	return out, nil
+	return nil, fmt.Errorf("lx: ListAssets wire schema not yet defined")
 }
 
 func (p *Provider) GetAsset(ctx context.Context, symbolOrID string) (*types.Asset, error) {
-	var out types.Asset
-	req := map[string]string{"symbol": symbolOrID}
-	if err := p.call(ctx, OpGetAsset, req, &out); err != nil {
+	msg := buildSymbolReq(OpGetAsset, symbolOrID)
+	resp, err := p.call(ctx, msg)
+	if err != nil {
 		return nil, err
 	}
-	return &out, nil
+	a := readAssetRoot(resp.Root())
+	return &types.Asset{
+		ID:       a.id,
+		Symbol:   a.symbol,
+		Name:     a.name,
+		Class:    a.class,
+		Exchange: a.exchange,
+		Status:   a.status,
+		Provider: a.provider,
+		Tradable: a.tradable,
+	}, nil
 }
 
 // ── Market Data ────────────────────────────────────────────────────────
-// All live data comes from the on-chain orderbook (DEX precompile).
 
 func (p *Provider) GetSnapshot(ctx context.Context, symbol string) (*types.MarketSnapshot, error) {
-	var out types.MarketSnapshot
-	req := map[string]string{"symbol": symbol}
-	if err := p.call(ctx, OpGetSnapshot, req, &out); err != nil {
+	msg := buildSymbolReq(OpGetSnapshot, symbol)
+	resp, err := p.call(ctx, msg)
+	if err != nil {
 		return nil, err
 	}
-	return &out, nil
+	return snapToType(readSnapshotRoot(resp.Root())), nil
 }
 
 func (p *Provider) GetSnapshots(ctx context.Context, symbols []string) (map[string]*types.MarketSnapshot, error) {
-	var out map[string]*types.MarketSnapshot
-	req := map[string][]string{"symbols": symbols}
-	if err := p.call(ctx, OpGetSnapshots, req, &out); err != nil {
-		return nil, err
+	// List-of-snapshot schema is in-flight; until then issue one call per
+	// symbol. N network round-trips but zero JSON — keeps the wire pure
+	// ZAP and avoids a half-baked list encoding.
+	out := make(map[string]*types.MarketSnapshot, len(symbols))
+	for _, s := range symbols {
+		snap, err := p.GetSnapshot(ctx, s)
+		if err != nil {
+			return nil, err
+		}
+		out[s] = snap
 	}
 	return out, nil
 }
 
 func (p *Provider) GetBars(ctx context.Context, symbol, timeframe, start, end string, limit int) ([]*types.Bar, error) {
-	var out []*types.Bar
-	req := struct {
-		Symbol    string `json:"symbol"`
-		Timeframe string `json:"timeframe"`
-		Start     string `json:"start"`
-		End       string `json:"end"`
-		Limit     int    `json:"limit"`
-	}{symbol, timeframe, start, end, limit}
-	if err := p.call(ctx, OpGetBars, req, &out); err != nil {
-		return nil, err
-	}
-	return out, nil
+	return nil, fmt.Errorf("lx: GetBars response schema not yet defined")
 }
 
 func (p *Provider) GetLatestTrades(ctx context.Context, symbols []string) (map[string]*types.Trade, error) {
-	var out map[string]*types.Trade
-	req := map[string][]string{"symbols": symbols}
-	if err := p.call(ctx, OpGetTrades, req, &out); err != nil {
-		return nil, err
-	}
-	return out, nil
+	return nil, fmt.Errorf("lx: GetLatestTrades response schema not yet defined")
 }
 
 func (p *Provider) GetLatestQuotes(ctx context.Context, symbols []string) (map[string]*types.Quote, error) {
-	var out map[string]*types.Quote
-	req := map[string][]string{"symbols": symbols}
-	if err := p.call(ctx, OpGetQuotes, req, &out); err != nil {
+	// Derive quotes from snapshots until a dedicated Quote schema ships.
+	snaps, err := p.GetSnapshots(ctx, symbols)
+	if err != nil {
 		return nil, err
+	}
+	out := make(map[string]*types.Quote, len(snaps))
+	for sym, s := range snaps {
+		if s.LatestQuote != nil {
+			out[sym] = s.LatestQuote
+		}
 	}
 	return out, nil
 }
@@ -367,4 +326,72 @@ func (p *Provider) GetClock(ctx context.Context) (*types.MarketClock, error) {
 
 func (p *Provider) GetCalendar(ctx context.Context, start, end string) ([]*types.MarketCalendarDay, error) {
 	return nil, nil
+}
+
+// ── internal conversion helpers ────────────────────────────────────────
+
+func snapToType(s snapshot) *types.MarketSnapshot {
+	out := &types.MarketSnapshot{Symbol: s.symbol}
+	if s.lastPrice != 0 || s.lastSize != 0 || s.lastNs != 0 {
+		out.LatestTrade = &types.Trade{
+			Price:     s.lastPrice,
+			Size:      s.lastSize,
+			Timestamp: time.Unix(0, s.lastNs).UTC().Format(time.RFC3339Nano),
+		}
+	}
+	if s.bidPrice != 0 || s.askPrice != 0 {
+		out.LatestQuote = &types.Quote{
+			BidPrice:  s.bidPrice,
+			BidSize:   s.bidSize,
+			AskPrice:  s.askPrice,
+			AskSize:   s.askSize,
+			Timestamp: time.Unix(0, s.quoteNs).UTC().Format(time.RFC3339Nano),
+		}
+	}
+	return out
+}
+
+func orderToType(o order) *types.Order {
+	out := &types.Order{
+		ID:             o.id,
+		ProviderID:     o.id,
+		AccountID:      o.account,
+		Symbol:         o.symbol,
+		Side:           o.side,
+		Type:           o.orderType,
+		TimeInForce:    o.tif,
+		Status:         o.status,
+		Qty:            formatFloat(o.qty),
+		FilledQty:      formatFloat(o.filledQty),
+		LimitPrice:     formatFloat(o.limitPrice),
+		StopPrice:      formatFloat(o.stopPrice),
+		FilledAvgPrice: formatFloat(o.avgFillPrice),
+		Provider:       "lx",
+	}
+	if o.createdNs != 0 {
+		out.CreatedAt = time.Unix(0, o.createdNs).UTC()
+	}
+	if o.filledNs != 0 {
+		t := time.Unix(0, o.filledNs).UTC()
+		out.FilledAt = &t
+	}
+	return out
+}
+
+// parseFloat coerces the string-typed types.CreateOrderRequest fields to
+// float64 for wire transport. Empty / unparseable values map to 0.
+func parseFloat(s string) float64 {
+	if s == "" {
+		return 0
+	}
+	var f float64
+	_, _ = fmt.Sscanf(s, "%f", &f)
+	return f
+}
+
+func formatFloat(f float64) string {
+	if f == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%g", f)
 }
