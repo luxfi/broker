@@ -626,6 +626,111 @@ func TestGetSnapshotStock(t *testing.T) {
 	}
 }
 
+func TestListAssets_IncludesFixedIncome(t *testing.T) {
+	_, p := testServer(t, map[string]http.HandlerFunc{
+		"/v1/assets": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode([]map[string]interface{}{
+				{"id": "eq-1", "symbol": "AAPL", "name": "Apple Inc", "class": "us_equity", "status": "active", "tradable": true},
+			})
+		},
+		"/v1/assets/fixed_income/us_treasuries": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"us_treasuries": []map[string]interface{}{
+					{"cusip": "912797QD2", "isin": "US912797QD26", "tradable": true, "bond_status": "outstanding", "subtype": "bill", "coupon_rate": "0", "maturity_date": "2026-07-09"},
+					{"cusip": "912797XX9", "isin": "US912797XX99", "tradable": false, "bond_status": "matured", "subtype": "note", "coupon_rate": "2.5", "maturity_date": "2024-01-01"},
+				},
+			})
+		},
+		"/v1/assets/fixed_income/us_corporates": func(w http.ResponseWriter, r *http.Request) {
+			// Simulate 403 — not subscribed
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte(`{"message":"not subscribed"}`))
+		},
+	})
+
+	// Fetch all: should include equity + FI (corporates 403 is silently skipped)
+	assets, err := p.ListAssets(context.Background(), "")
+	if err != nil {
+		t.Fatalf("ListAssets error: %v", err)
+	}
+	// 1 equity + 1 tradable treasury (matured one has Tradable=false from bond_status != outstanding)
+	var equities, fi int
+	for _, a := range assets {
+		switch a.Class {
+		case "us_equity":
+			equities++
+		case "fixed_income":
+			fi++
+		}
+	}
+	if equities != 1 {
+		t.Errorf("equities = %d, want 1", equities)
+	}
+	if fi != 2 {
+		t.Errorf("fixed_income assets = %d, want 2 (both returned, tradable flag varies)", fi)
+	}
+
+	// Verify the outstanding treasury is tradable, the matured one is not
+	for _, a := range assets {
+		if a.Symbol == "912797QD2" {
+			if !a.Tradable {
+				t.Error("912797QD2 should be tradable (outstanding + tradable=true)")
+			}
+			if a.Name != "US Treasury bill" {
+				t.Errorf("name = %q, want 'US Treasury bill'", a.Name)
+			}
+		}
+		if a.Symbol == "912797XX9" {
+			if a.Tradable {
+				t.Error("912797XX9 should not be tradable (matured)")
+			}
+		}
+	}
+}
+
+func TestListAssets_FixedIncomeOnly(t *testing.T) {
+	_, p := testServer(t, map[string]http.HandlerFunc{
+		"/v1/assets/fixed_income/us_treasuries": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"us_treasuries": []map[string]interface{}{
+					{"cusip": "912797QD2", "tradable": true, "bond_status": "outstanding", "subtype": "bill"},
+				},
+			})
+		},
+		"/v1/assets/fixed_income/us_corporates": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"us_corporates": []map[string]interface{}{
+					{"cusip": "037833100", "tradable": true, "bond_status": "outstanding", "subtype": "senior"},
+				},
+			})
+		},
+	})
+
+	// class=fixed_income should NOT call the standard /v1/assets endpoint
+	assets, err := p.ListAssets(context.Background(), "fixed_income")
+	if err != nil {
+		t.Fatalf("ListAssets error: %v", err)
+	}
+	if len(assets) != 2 {
+		t.Fatalf("expected 2 FI assets, got %d", len(assets))
+	}
+	for _, a := range assets {
+		if a.Class != "fixed_income" {
+			t.Errorf("asset %s class = %q, want 'fixed_income'", a.Symbol, a.Class)
+		}
+	}
+	// Check corporate naming
+	for _, a := range assets {
+		if a.Symbol == "037833100" && a.Name != "US Corporate senior" {
+			t.Errorf("corporate name = %q, want 'US Corporate senior'", a.Name)
+		}
+	}
+}
+
 func TestErrorHandling(t *testing.T) {
 	_, p := testServer(t, map[string]http.HandlerFunc{
 		"/v1/accounts/bad-id": func(w http.ResponseWriter, r *http.Request) {
