@@ -877,54 +877,138 @@ func (p *Provider) parseBankRelationship(data []byte) (*types.BankRelationship, 
 // --- Assets ---
 
 func (p *Provider) ListAssets(ctx context.Context, class string) ([]*types.Asset, error) {
-	path := "/v1/assets?status=active"
-	if class != "" {
-		path += "&asset_class=" + class
-	}
-	data, _, err := p.do(ctx, http.MethodGet, path, nil)
-	if err != nil {
-		return nil, err
-	}
-	var raw []struct {
-		ID                  string `json:"id"`
-		Symbol              string `json:"symbol"`
-		Name                string `json:"name"`
-		Class               string `json:"class"`
-		Exchange            string `json:"exchange"`
-		Status              string `json:"status"`
-		Tradable            bool   `json:"tradable"`
-		Fractionable        bool   `json:"fractionable"`
-		OvernightTradable   bool   `json:"overnight_tradable"`
-		OvernightHalted     bool   `json:"overnight_halted"`
-		FractionalEHEnabled bool   `json:"fractional_eh_enabled"`
-		MinOrderSize        string `json:"min_order_size"`
-		PriceIncrement      string `json:"price_increment"`
-		MinTradeIncrement   string `json:"min_trade_increment"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, err
-	}
-	assets := make([]*types.Asset, len(raw))
-	for i, r := range raw {
-		assets[i] = &types.Asset{
-			ID:                  r.ID,
-			Provider:            "alpaca",
-			Symbol:              r.Symbol,
-			Name:                r.Name,
-			Class:               r.Class,
-			Exchange:            r.Exchange,
-			Status:              r.Status,
-			Tradable:            r.Tradable,
-			Fractionable:        r.Fractionable,
-			OvernightTradable:   r.OvernightTradable,
-			OvernightHalted:     r.OvernightHalted,
-			FractionalEHEnabled: r.FractionalEHEnabled,
-			MinOrderSize:        r.MinOrderSize,
-			PriceIncrement:      r.PriceIncrement,
-			MinTradeIncrement:   r.MinTradeIncrement,
+	var assets []*types.Asset
+
+	// Standard asset listing (equities, crypto, etc.)
+	if class != "fixed_income" {
+		path := "/v1/assets?status=active"
+		if class != "" {
+			path += "&asset_class=" + class
+		}
+		data, _, err := p.do(ctx, http.MethodGet, path, nil)
+		if err != nil {
+			return nil, err
+		}
+		var raw []struct {
+			ID                  string `json:"id"`
+			Symbol              string `json:"symbol"`
+			Name                string `json:"name"`
+			Class               string `json:"class"`
+			Exchange            string `json:"exchange"`
+			Status              string `json:"status"`
+			Tradable            bool   `json:"tradable"`
+			Fractionable        bool   `json:"fractionable"`
+			OvernightTradable   bool   `json:"overnight_tradable"`
+			OvernightHalted     bool   `json:"overnight_halted"`
+			FractionalEHEnabled bool   `json:"fractional_eh_enabled"`
+			MinOrderSize        string `json:"min_order_size"`
+			PriceIncrement      string `json:"price_increment"`
+			MinTradeIncrement   string `json:"min_trade_increment"`
+		}
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return nil, err
+		}
+		for _, r := range raw {
+			assets = append(assets, &types.Asset{
+				ID:                  r.ID,
+				Provider:            "alpaca",
+				Symbol:              r.Symbol,
+				Name:                r.Name,
+				Class:               r.Class,
+				Exchange:            r.Exchange,
+				Status:              r.Status,
+				Tradable:            r.Tradable,
+				Fractionable:        r.Fractionable,
+				OvernightTradable:   r.OvernightTradable,
+				OvernightHalted:     r.OvernightHalted,
+				FractionalEHEnabled: r.FractionalEHEnabled,
+				MinOrderSize:        r.MinOrderSize,
+				PriceIncrement:      r.PriceIncrement,
+				MinTradeIncrement:   r.MinTradeIncrement,
+			})
 		}
 	}
+
+	// Fixed income assets: Alpaca serves these from separate endpoints.
+	if class == "" || class == "fixed_income" {
+		assets = append(assets, p.listFIAssets(ctx, "/v1/assets/fixed_income/us_treasuries", "us_treasuries")...)
+		assets = append(assets, p.listFIAssets(ctx, "/v1/assets/fixed_income/us_corporates", "us_corporates")...)
+	}
+
 	return assets, nil
+}
+
+// listFIAssets fetches fixed income assets from one of Alpaca's FI endpoints.
+func (p *Provider) listFIAssets(ctx context.Context, path, key string) []*types.Asset {
+	data, _, err := p.do(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil
+	}
+	var wrapper map[string]json.RawMessage
+	if err := json.Unmarshal(data, &wrapper); err != nil {
+		return nil
+	}
+	raw, ok := wrapper[key]
+	if !ok {
+		return nil
+	}
+	var bonds []struct {
+		CUSIP            string `json:"cusip"`
+		ISIN             string `json:"isin"`
+		Ticker           string `json:"ticker"`
+		Tradable         bool   `json:"tradable"`
+		BondStatus       string `json:"bond_status"`
+		Subtype          string `json:"subtype"`
+		Description      string `json:"description"`
+		DescriptionShort string `json:"description_short"`
+		CouponRate       string `json:"coupon_rate"`
+		Coupon           any    `json:"coupon"`
+		CouponType       string `json:"coupon_type"`
+		CouponFrequency  string `json:"coupon_frequency"`
+		MaturityDate     string `json:"maturity_date"`
+		IssueDate        string `json:"issue_date"`
+	}
+	if err := json.Unmarshal(raw, &bonds); err != nil {
+		return nil
+	}
+	var assets []*types.Asset
+	for _, b := range bonds {
+		name := b.Description
+		if name == "" {
+			name = b.DescriptionShort
+		}
+		if name == "" {
+			if key == "us_corporates" {
+				name = "US Corporate " + b.Subtype
+			} else {
+				name = "US Treasury " + b.Subtype
+			}
+		}
+		couponRate := b.CouponRate
+		if couponRate == "" && b.Coupon != nil {
+			couponRate = fmt.Sprintf("%v", b.Coupon)
+		}
+		assets = append(assets, &types.Asset{
+			ID:              b.CUSIP,
+			Provider:        "alpaca",
+			Symbol:          b.CUSIP,
+			Name:            name,
+			Class:           "fixed_income",
+			Status:          b.BondStatus,
+			Tradable:        b.BondStatus == "outstanding" && b.Tradable,
+			CUSIP:           b.CUSIP,
+			ISIN:            b.ISIN,
+			Ticker:          b.Ticker,
+			Description:     b.Description,
+			Subtype:         b.Subtype,
+			MaturityDate:    b.MaturityDate,
+			IssueDate:       b.IssueDate,
+			CouponRate:      couponRate,
+			CouponType:      b.CouponType,
+			CouponFrequency: b.CouponFrequency,
+		})
+	}
+	return assets
 }
 
 func (p *Provider) GetAsset(ctx context.Context, symbolOrID string) (*types.Asset, error) {
