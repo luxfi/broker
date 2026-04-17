@@ -69,7 +69,7 @@ func testToken() string {
 	return signTestJWT(map[string]interface{}{
 		"sub":     testUserID,
 		"owner":   "test-org",
-		"email":   "test@liquidity.io",
+		"email":   "test@example.com",
 		"roles":   "admin",
 		"isAdmin": true,
 		"exp":     float64(time.Now().Add(time.Hour).Unix()),

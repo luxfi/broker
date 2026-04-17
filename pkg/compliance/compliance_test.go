@@ -30,7 +30,7 @@ func doRequest(r chi.Router, method, path string, body interface{}) *httptest.Re
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-User-Id", "test-user-001")
 	req.Header.Set("X-Org-Id", "built-in")
-	req.Header.Set("X-User-Email", "testadmin@liquidity.io")
+	req.Header.Set("X-User-Email", "testadmin@example.com")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	return w
