@@ -620,31 +620,62 @@ func (p *Provider) listFIAssets(ctx context.Context, path, key string) []*types.
 		return nil
 	}
 	var bonds []struct {
-		CUSIP        string `json:"cusip"`
-		ISIN         string `json:"isin"`
-		Tradable     bool   `json:"tradable"`
-		BondStatus   string `json:"bond_status"`
-		Subtype      string `json:"subtype"`
-		CouponRate   string `json:"coupon_rate"`
-		MaturityDate string `json:"maturity_date"`
+		CUSIP            string `json:"cusip"`
+		ISIN             string `json:"isin"`
+		Ticker           string `json:"ticker"`
+		Tradable         bool   `json:"tradable"`
+		BondStatus       string `json:"bond_status"`
+		Subtype          string `json:"subtype"`
+		Description      string `json:"description"`
+		DescriptionShort string `json:"description_short"`
+		CouponRate       string `json:"coupon_rate"`
+		Coupon           any    `json:"coupon"`
+		CouponType       string `json:"coupon_type"`
+		CouponFrequency  string `json:"coupon_frequency"`
+		MaturityDate     string `json:"maturity_date"`
+		IssueDate        string `json:"issue_date"`
 	}
 	if err := json.Unmarshal(raw, &bonds); err != nil {
 		return nil
 	}
 	var assets []*types.Asset
 	for _, b := range bonds {
-		name := "US Treasury " + b.Subtype
-		if key == "us_corporates" {
-			name = "US Corporate " + b.Subtype
+		// Use description from Alpaca (e.g. "United States Treasury 0.0%, 01/01/2056").
+		// Fall back to constructed name if description is empty.
+		name := b.Description
+		if name == "" {
+			name = b.DescriptionShort
+		}
+		if name == "" {
+			if key == "us_corporates" {
+				name = "US Corporate " + b.Subtype
+			} else {
+				name = "US Treasury " + b.Subtype
+			}
+		}
+		// CouponRate: prefer the string field, fall back to the numeric coupon field.
+		couponRate := b.CouponRate
+		if couponRate == "" && b.Coupon != nil {
+			couponRate = fmt.Sprintf("%v", b.Coupon)
 		}
 		assets = append(assets, &types.Asset{
-			ID:       b.CUSIP,
-			Provider: "alpaca_omnisub",
-			Symbol:   b.CUSIP,
-			Name:     name,
-			Class:    "fixed_income",
-			Status:   b.BondStatus,
-			Tradable: b.BondStatus == "outstanding" && b.Tradable,
+			ID:              b.CUSIP,
+			Provider:        "alpaca_omnisub",
+			Symbol:          b.CUSIP,
+			Name:            name,
+			Class:           "fixed_income",
+			Status:          b.BondStatus,
+			Tradable:        b.BondStatus == "outstanding" && b.Tradable,
+			CUSIP:           b.CUSIP,
+			ISIN:            b.ISIN,
+			Ticker:          b.Ticker,
+			Description:     b.Description,
+			Subtype:         b.Subtype,
+			MaturityDate:    b.MaturityDate,
+			IssueDate:       b.IssueDate,
+			CouponRate:      couponRate,
+			CouponType:      b.CouponType,
+			CouponFrequency: b.CouponFrequency,
 		})
 	}
 	return assets

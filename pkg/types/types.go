@@ -137,6 +137,18 @@ type Asset struct {
 	MinOrderSize        string `json:"min_order_size,omitempty"`
 	PriceIncrement      string `json:"price_increment,omitempty"`
 	MinTradeIncrement   string `json:"min_trade_increment,omitempty"`
+
+	// Fixed income fields (bonds, treasuries, corporates)
+	CUSIP           string `json:"cusip,omitempty"`
+	ISIN            string `json:"isin,omitempty"`
+	Ticker          string `json:"ticker,omitempty"`
+	Description     string `json:"description,omitempty"`
+	Subtype         string `json:"subtype,omitempty"`          // bill, note, bond, senior, subordinated
+	MaturityDate    string `json:"maturity_date,omitempty"`    // ISO 8601 date
+	IssueDate       string `json:"issue_date,omitempty"`       // ISO 8601 date
+	CouponRate      string `json:"coupon_rate,omitempty"`      // annual rate
+	CouponType      string `json:"coupon_type,omitempty"`      // fixed, floating, zero
+	CouponFrequency string `json:"coupon_frequency,omitempty"` // semi_annual, quarterly, zero
 }
 
 // Transfer is a fund movement (ACH, wire, crypto).
