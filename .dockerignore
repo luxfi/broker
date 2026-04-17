@@ -1,11 +1,37 @@
+# VCS / CI
 .git
-*.md
-LICENSE
+.github/
+
+# Editor / IDE
+.claude/
 .vscode/
 .idea/
-.env*
+
+# Build artifacts
+bin/
+brokerd
+
+# Not needed for Go build
+docs/
+k8s/
+schemas/
+sdk/
+scripts/
+
+# Test / coverage
 testdata/
 *_test.go
 coverage/
+
+# Vendored deps (go mod download in Dockerfile)
 vendor/
-docs/
+
+# Config / secrets
+.env*
+compose.yml
+cloudbuild.yaml
+Makefile
+
+# Docs
+*.md
+LICENSE
