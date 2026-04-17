@@ -681,10 +681,118 @@ func TestListAssets_IncludesFixedIncome(t *testing.T) {
 			if a.Name != "US Treasury bill" {
 				t.Errorf("name = %q, want 'US Treasury bill'", a.Name)
 			}
+			// Verify FI metadata fields are populated
+			if a.CUSIP != "912797QD2" {
+				t.Errorf("CUSIP = %q, want '912797QD2'", a.CUSIP)
+			}
+			if a.ISIN != "US912797QD26" {
+				t.Errorf("ISIN = %q, want 'US912797QD26'", a.ISIN)
+			}
+			if a.Subtype != "bill" {
+				t.Errorf("Subtype = %q, want 'bill'", a.Subtype)
+			}
+			if a.MaturityDate != "2026-07-09" {
+				t.Errorf("MaturityDate = %q, want '2026-07-09'", a.MaturityDate)
+			}
+			if a.CouponRate != "0" {
+				t.Errorf("CouponRate = %q, want '0'", a.CouponRate)
+			}
 		}
 		if a.Symbol == "912797XX9" {
 			if a.Tradable {
 				t.Error("912797XX9 should not be tradable (matured)")
+			}
+		}
+	}
+}
+
+func TestListAssets_FIDescriptionParsed(t *testing.T) {
+	_, p := testServer(t, map[string]http.HandlerFunc{
+		"/v1/assets/fixed_income/us_treasuries": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"us_treasuries": []map[string]interface{}{
+					{
+						"cusip":            "912540ZA2",
+						"isin":             "US912540ZA28",
+						"tradable":         true,
+						"bond_status":      "outstanding",
+						"subtype":          "bond",
+						"description":      "United States Treasury 0.0%, 01/01/2056",
+						"description_short": "UST 0.0% 01/01/2056",
+						"coupon":           0,
+						"coupon_type":      "zero",
+						"coupon_frequency": "zero",
+						"maturity_date":    "2056-01-01",
+						"issue_date":       "2026-01-01",
+					},
+				},
+			})
+		},
+		"/v1/assets/fixed_income/us_corporates": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"us_corporates": []map[string]interface{}{
+					{
+						"cusip":            "001055AQ6",
+						"isin":             "US001055AQ60",
+						"ticker":           "AFL",
+						"tradable":         true,
+						"bond_status":      "outstanding",
+						"subtype":          "senior",
+						"description":      "Aflac 3.6%, 04/01/2030",
+						"coupon_rate":      "3.6",
+						"coupon_type":      "fixed",
+						"coupon_frequency": "semi_annual",
+						"maturity_date":    "2030-04-01",
+						"issue_date":       "2020-03-17",
+					},
+				},
+			})
+		},
+	})
+
+	assets, err := p.ListAssets(context.Background(), "fixed_income")
+	if err != nil {
+		t.Fatalf("ListAssets error: %v", err)
+	}
+	if len(assets) != 2 {
+		t.Fatalf("expected 2 FI assets, got %d", len(assets))
+	}
+
+	for _, a := range assets {
+		switch a.CUSIP {
+		case "912540ZA2":
+			if a.Name != "United States Treasury 0.0%, 01/01/2056" {
+				t.Errorf("treasury name = %q, want description", a.Name)
+			}
+			if a.CouponType != "zero" {
+				t.Errorf("CouponType = %q, want 'zero'", a.CouponType)
+			}
+			if a.CouponFrequency != "zero" {
+				t.Errorf("CouponFrequency = %q, want 'zero'", a.CouponFrequency)
+			}
+			if a.IssueDate != "2026-01-01" {
+				t.Errorf("IssueDate = %q, want '2026-01-01'", a.IssueDate)
+			}
+			if a.CouponRate != "0" {
+				t.Errorf("CouponRate = %q, want '0'", a.CouponRate)
+			}
+		case "001055AQ6":
+			if a.Name != "Aflac 3.6%, 04/01/2030" {
+				t.Errorf("corporate name = %q, want description", a.Name)
+			}
+			if a.Ticker != "AFL" {
+				t.Errorf("Ticker = %q, want 'AFL'", a.Ticker)
+			}
+			if a.CouponRate != "3.6" {
+				t.Errorf("CouponRate = %q, want '3.6'", a.CouponRate)
+			}
+			if a.CouponType != "fixed" {
+				t.Errorf("CouponType = %q, want 'fixed'", a.CouponType)
+			}
+			if a.CouponFrequency != "semi_annual" {
+				t.Errorf("CouponFrequency = %q, want 'semi_annual'", a.CouponFrequency)
 			}
 		}
 	}
