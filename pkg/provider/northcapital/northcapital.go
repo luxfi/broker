@@ -158,29 +158,10 @@ func New(cfg Config) *Provider {
 // router and the broker registry.
 func (p *Provider) Name() string { return "northcapital" }
 
-// LoadFromKMS is the documented hook for hydrating Config from
-// luxfi/kms. The integration brief §7 enumerates the exact unwrap
-// path and the audit-trail requirements. The hook is intentionally
-// thin — the KMS client wiring is the responsibility of the brokerd
-// startup path, not this adapter.
-//
-// Expected KMS layout (per the integration brief §2):
-//
-//	shared/northcapital/sandbox/clientID
-//	shared/northcapital/sandbox/developerAPIKey
-//	shared/northcapital/sandbox/webhookAuthKey
-//	shared/northcapital/sandbox/webhookDecryptionKey
-//	shared/northcapital/prod/clientID
-//	shared/northcapital/prod/developerAPIKey
-//	shared/northcapital/prod/webhookAuthKey
-//	shared/northcapital/prod/webhookDecryptionKey
-//
-// Each value is the per-tenant-KEK-wrapped envelope. The KMS client
-// unwraps under the tenant's KEK, returning plaintext only inside this
-// process's address space, never persisted.
-func (cfg *Config) LoadFromKMS(_ context.Context, _ string) error {
-	return errors.New("northcapital: LoadFromKMS must be wired by brokerd to luxfi/kms")
-}
+// LoadFromKMS is implemented in kms.go. The signature is
+// (ctx, kms, env) — see kms.go for the KMSGetter interface, error
+// sentinels (ErrKMSKeyMissing, ErrKMSDecryption), and the
+// brokerd-side wiring sketch against luxfi/kms.
 
 // --- HTTP transport ---
 //
