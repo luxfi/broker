@@ -211,14 +211,51 @@ type BulkTradeErr struct {
 // or Entity (held at NCPS's custody provider, opened under the
 // TransactAPI custody-opening workflow).
 type CustodyAccount struct {
-	ID            string            `json:"id"` // TransactAPI custodyAccountId
-	PartyID       string            `json:"party_id,omitempty"`
-	EntityID      string            `json:"entity_id,omitempty"`
-	AccountType   string            `json:"account_type"` // individual, joint, entity, ira
-	Status        string            `json:"status"`       // pending, open, closed
-	OpenedAt      *time.Time        `json:"opened_at,omitempty"`
-	ClosedAt      *time.Time        `json:"closed_at,omitempty"`
-	Meta          map[string]string `json:"meta,omitempty"`
+	ID          string            `json:"id"` // TransactAPI custodyAccountId
+	RequestID   string            `json:"request_id,omitempty"`
+	PartyID     string            `json:"party_id,omitempty"`
+	EntityID    string            `json:"entity_id,omitempty"`
+	AccountType string            `json:"account_type"` // individual, joint, entity, ira
+	Status      string            `json:"status"`       // pending, open, rejected, closed
+	OpenedAt    *time.Time        `json:"opened_at,omitempty"`
+	ClosedAt    *time.Time        `json:"closed_at,omitempty"`
+	Meta        map[string]string `json:"meta,omitempty"`
+}
+
+// SuitabilityResult is the outcome of a suitability questionnaire
+// recorded with TransactAPI on a Party's investment profile.
+type SuitabilityResult struct {
+	PartyID         string    `json:"party_id"`
+	Status          string    `json:"status"` // pass, fail, manual_review
+	RiskTolerance   string    `json:"risk_tolerance,omitempty"`
+	InvestmentHorizon string  `json:"investment_horizon,omitempty"`
+	NetWorth        string    `json:"net_worth,omitempty"`
+	AnnualIncome    string    `json:"annual_income,omitempty"`
+	LiquidityNeeds  string    `json:"liquidity_needs,omitempty"`
+	Reasons         []string  `json:"reasons,omitempty"`
+	RecordedAt      time.Time `json:"recorded_at"`
+}
+
+// TradeDocument is a single document associated with a Trade (e.g.,
+// subscription agreement, signed PPM, accredited-investor letter).
+type TradeDocument struct {
+	ID          string    `json:"id"`
+	TradeID     string    `json:"trade_id"`
+	Name        string    `json:"name"`
+	Type        string    `json:"type"`     // subscription, ppm, accredited_letter, kyc_doc
+	Status      string    `json:"status"`   // pending, signed, uploaded
+	URL         string    `json:"url,omitempty"`
+	UploadedAt  time.Time `json:"uploaded_at"`
+}
+
+// Refund records a TransactAPI refund / return on a settled trade.
+type Refund struct {
+	ID        string    `json:"id"`
+	TradeID   string    `json:"trade_id"`
+	Amount    string    `json:"amount"`
+	Reason    string    `json:"reason"`
+	Status    string    `json:"status"` // pending, completed, failed
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // --- ATS / Secondary trades ---
@@ -327,6 +364,102 @@ type CustodyOpenRequest struct {
 
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
 	OrgID          string `json:"org_id,omitempty"`
+}
+
+// SuitabilityRequest is the input to recording a suitability profile
+// for a Party.
+type SuitabilityRequest struct {
+	PartyID           string `json:"party_id"`
+	RiskTolerance     string `json:"risk_tolerance,omitempty"`
+	InvestmentHorizon string `json:"investment_horizon,omitempty"`
+	NetWorth          string `json:"net_worth,omitempty"`
+	AnnualIncome      string `json:"annual_income,omitempty"`
+	LiquidityNeeds    string `json:"liquidity_needs,omitempty"`
+
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
+	OrgID          string `json:"org_id,omitempty"`
+}
+
+// CancelTradeRequest is the input to CancelTrade.
+type CancelTradeRequest struct {
+	TradeID string `json:"trade_id"`
+	Reason  string `json:"reason,omitempty"`
+
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
+	OrgID          string `json:"org_id,omitempty"`
+}
+
+// RefundTradeRequest is the input to RefundTrade.
+type RefundTradeRequest struct {
+	TradeID string `json:"trade_id"`
+	Amount  string `json:"amount"` // partial refund; empty = full
+	Reason  string `json:"reason"`
+
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
+	OrgID          string `json:"org_id,omitempty"`
+}
+
+// SendSubscriptionDocsRequest is the input to SendSubscriptionDocs.
+type SendSubscriptionDocsRequest struct {
+	TradeID    string   `json:"trade_id"`
+	Recipients []string `json:"recipients,omitempty"` // emails for e-sign delivery
+
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
+	OrgID          string `json:"org_id,omitempty"`
+}
+
+// UpdateWebhookAuthKeyRequest is the input to UpdateWebhookAuthKey.
+// The new key is written into KMS *before* this call lands; the
+// 24-hour overlap window (brief §7) lets old + new co-exist.
+type UpdateWebhookAuthKeyRequest struct {
+	NewAuthKey string `json:"new_auth_key"`
+
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
+	OrgID          string `json:"org_id,omitempty"`
+}
+
+// AccreditedRequest is the input to PerformAccredited. Carries the
+// supporting documentation references appropriate to the method:
+// income/net-worth pull a 3rd-party data provider; third-party letter
+// references a previously-uploaded verification document; professional-
+// license references the CRD/SEC identifier.
+type AccreditedRequest struct {
+	PartyID         string           `json:"party_id"`
+	Method          AccreditedMethod `json:"method"`
+	DocumentID      string           `json:"document_id,omitempty"`      // for third-party letter
+	LicenseRef      string           `json:"license_ref,omitempty"`      // for professional license
+	IncomeYear      int              `json:"income_year,omitempty"`      // for income method
+	JointSpouseID   string           `json:"joint_spouse_id,omitempty"`  // for joint accredited
+	ThirdPartyEmail string           `json:"third_party_email,omitempty"` // 506(c) third-party verifier email
+
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
+	OrgID          string `json:"org_id,omitempty"`
+}
+
+// ListOptions is the uniform pagination + filter envelope accepted by
+// every list endpoint. The adapter handles cursoring internally — see
+// ListParties / ListOfferings / etc. — but callers may use ListOptions
+// to scope the result set.
+//
+// Page semantics: TransactAPI's legacy v1 "get all" endpoints cap at
+// 500 records per page; the modern /v3/ endpoints accept arbitrary
+// pageSize. The adapter follows links / increments page until the
+// upstream signals "no more" (either an empty result page or an
+// explicit hasMore=false), then returns the accumulated slice. Callers
+// receive the complete result set without writing pagination logic.
+type ListOptions struct {
+	// PageSize is the per-page record cap. Defaults to 100 if zero.
+	PageSize int
+
+	// MaxRecords caps the total result-set size returned to the caller.
+	// Zero means "no cap" (fetch everything). Use this on truly large
+	// directories to bound memory.
+	MaxRecords int
+
+	// Filter is an opaque map of provider-specific filter parameters
+	// (status, dateFrom, dateTo, offeringId, partyId — whatever the
+	// underlying endpoint accepts). Keys are sent verbatim.
+	Filter map[string]string
 }
 
 // --- Capability shape ---
