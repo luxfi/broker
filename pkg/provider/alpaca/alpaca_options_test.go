@@ -305,16 +305,16 @@ func TestCreateOptionOrder(t *testing.T) {
 			}
 			json.NewDecoder(r.Body).Decode(&gotBody)
 			json.NewEncoder(w).Encode(map[string]interface{}{
-				"id":             "order-123",
-				"symbol":         "AAPL260418C00150000",
-				"qty":            "1",
-				"side":           "buy",
-				"type":           "limit",
-				"time_in_force":  "day",
-				"limit_price":    "5.50",
-				"status":         "accepted",
-				"asset_class":    "us_option",
-				"created_at":     "2026-04-01T10:00:00Z",
+				"id":            "order-123",
+				"symbol":        "AAPL260418C00150000",
+				"qty":           "1",
+				"side":          "buy",
+				"type":          "limit",
+				"time_in_force": "day",
+				"limit_price":   "5.50",
+				"status":        "accepted",
+				"asset_class":   "us_option",
+				"created_at":    "2026-04-01T10:00:00Z",
 			})
 		},
 	})
@@ -400,10 +400,10 @@ func TestCreateMultiLegOrder(t *testing.T) {
 		"/v1/trading/accounts/test-acct/orders": func(w http.ResponseWriter, r *http.Request) {
 			json.NewDecoder(r.Body).Decode(&gotBody)
 			json.NewEncoder(w).Encode(map[string]interface{}{
-				"id":          "multileg-789",
-				"symbol":      "AAPL",
-				"status":      "accepted",
-				"created_at":  "2026-04-01T10:00:00Z",
+				"id":         "multileg-789",
+				"symbol":     "AAPL",
+				"status":     "accepted",
+				"created_at": "2026-04-01T10:00:00Z",
 			})
 		},
 	})

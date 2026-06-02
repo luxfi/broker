@@ -27,15 +27,15 @@ func (p *Provider) StreamTradeEvents(ctx context.Context, since string) (<-chan 
 			EventID   string `json:"event_id"`
 			AccountID string `json:"account_id"`
 			Order     *struct {
-				ID             string  `json:"id"`
-				Symbol         string  `json:"symbol"`
-				Side           string  `json:"side"`
-				Type           string  `json:"type"`
-				Qty            string  `json:"qty"`
-				FilledQty      string  `json:"filled_qty"`
-				FilledAvgPrice string  `json:"filled_avg_price"`
-				Status         string  `json:"status"`
-				CreatedAt      string  `json:"created_at"`
+				ID             string `json:"id"`
+				Symbol         string `json:"symbol"`
+				Side           string `json:"side"`
+				Type           string `json:"type"`
+				Qty            string `json:"qty"`
+				FilledQty      string `json:"filled_qty"`
+				FilledAvgPrice string `json:"filled_avg_price"`
+				Status         string `json:"status"`
+				CreatedAt      string `json:"created_at"`
 			} `json:"order"`
 			Timestamp string `json:"timestamp"`
 		}

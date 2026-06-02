@@ -146,10 +146,10 @@ func (p *Provider) GetPortfolio(ctx context.Context, _ string) (*types.Portfolio
 func (p *Provider) CreateOrder(ctx context.Context, _ string, req *types.CreateOrderRequest) (*types.Order, error) {
 	sym := geminiSymbol(req.Symbol)
 	payload := map[string]interface{}{
-		"symbol":   sym,
-		"amount":   req.Qty,
-		"side":     req.Side,
-		"type":     "exchange " + req.Type, // Gemini: "exchange limit", "exchange market"
+		"symbol": sym,
+		"amount": req.Qty,
+		"side":   req.Side,
+		"type":   "exchange " + req.Type, // Gemini: "exchange limit", "exchange market"
 	}
 	if req.LimitPrice != "" {
 		payload["price"] = req.LimitPrice
@@ -164,16 +164,16 @@ func (p *Provider) CreateOrder(ctx context.Context, _ string, req *types.CreateO
 		return nil, err
 	}
 	var raw struct {
-		OrderID       string `json:"order_id"`
-		Symbol        string `json:"symbol"`
-		Side          string `json:"side"`
-		Type          string `json:"type"`
-		Price         string `json:"price"`
-		AvgPrice      string `json:"avg_execution_price"`
+		OrderID        string `json:"order_id"`
+		Symbol         string `json:"symbol"`
+		Side           string `json:"side"`
+		Type           string `json:"type"`
+		Price          string `json:"price"`
+		AvgPrice       string `json:"avg_execution_price"`
 		ExecutedAmount string `json:"executed_amount"`
 		OriginalAmount string `json:"original_amount"`
-		IsLive        bool   `json:"is_live"`
-		IsCancelled   bool   `json:"is_cancelled"`
+		IsLive         bool   `json:"is_live"`
+		IsCancelled    bool   `json:"is_cancelled"`
 	}
 	json.Unmarshal(data, &raw)
 
@@ -322,7 +322,7 @@ func (p *Provider) GetSnapshot(ctx context.Context, symbol string) (*types.Marke
 		Symbol: symbol,
 		LatestQuote: &types.Quote{
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			BidPrice: bid, AskPrice: ask,
+			BidPrice:  bid, AskPrice: ask,
 		},
 		LatestTrade: &types.Trade{Timestamp: time.Now().UTC().Format(time.RFC3339), Price: last},
 		DailyBar:    &types.Bar{Close: last, Volume: vol},

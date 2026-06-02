@@ -130,13 +130,13 @@ type alpacaAccount struct {
 	AccountType   string `json:"account_type"`
 	CreatedAt     string `json:"created_at"`
 	Contact       *struct {
-		EmailAddress string   `json:"email_address"`
-		PhoneNumber  string   `json:"phone_number"`
+		EmailAddress  string   `json:"email_address"`
+		PhoneNumber   string   `json:"phone_number"`
 		StreetAddress []string `json:"street_address"`
-		City         string   `json:"city"`
-		State        string   `json:"state"`
-		PostalCode   string   `json:"postal_code"`
-		Country      string   `json:"country"`
+		City          string   `json:"city"`
+		State         string   `json:"state"`
+		PostalCode    string   `json:"postal_code"`
+		Country       string   `json:"country"`
 	} `json:"contact"`
 	Identity *struct {
 		GivenName             string `json:"given_name"`
@@ -229,7 +229,7 @@ func (p *Provider) CreateAccount(ctx context.Context, req *types.CreateAccountRe
 			"country":        req.Contact.Country,
 		},
 		"identity": map[string]interface{}{
-			"given_name":                req.Identity.GivenName,
+			"given_name":               req.Identity.GivenName,
 			"family_name":              req.Identity.FamilyName,
 			"date_of_birth":            req.Identity.DateOfBirth,
 			"tax_id":                   req.Identity.TaxID,
@@ -401,8 +401,8 @@ func (p *Provider) CreateOrder(ctx context.Context, providerAccountID string, re
 		et, _ := time.LoadLocation("America/New_York")
 		now := time.Now().In(et)
 		hour, min := now.Hour(), now.Minute()
-		marketOpen := hour > 9 || (hour == 9 && min >= 30)  // 9:30 AM
-		marketClose := hour < 16                              // 4:00 PM
+		marketOpen := hour > 9 || (hour == 9 && min >= 30) // 9:30 AM
+		marketClose := hour < 16                           // 4:00 PM
 		isMarketHours := marketOpen && marketClose && now.Weekday() >= time.Monday && now.Weekday() <= time.Friday
 		if !isMarketHours {
 			tif := strings.ToLower(req.TimeInForce)

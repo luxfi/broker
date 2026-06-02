@@ -22,7 +22,7 @@ import (
 
 // Config holds the common credentials and endpoints for a crypto exchange.
 type Config struct {
-	Name       string `json:"name"`        // exchange identifier (e.g. "myexchange")
+	Name       string `json:"name"` // exchange identifier (e.g. "myexchange")
 	BaseURL    string `json:"base_url"`
 	APIKey     string `json:"api_key"`
 	APISecret  string `json:"api_secret"`
@@ -33,59 +33,59 @@ type Config struct {
 // Endpoints maps logical operations to concrete REST paths.
 // Override these for each exchange.
 type Endpoints struct {
-	CreateAccount       string // POST
-	GetAccount          string // GET, {account_id}
-	ListAccounts        string // GET
-	GetPortfolio        string // GET, {account_id}
-	CreateOrder         string // POST
-	ListOrders          string // GET, {account_id}
-	GetOrder            string // GET, {account_id}, {order_id}
-	CancelOrder         string // DELETE, {account_id}, {order_id}
-	ListAssets          string // GET
-	GetAsset            string // GET, {symbol}
-	GetSnapshot         string // GET, {symbol}
-	GetSnapshots        string // GET, ?symbols=
-	GetBars             string // GET, {symbol}
-	GetLatestTrades     string // GET
-	GetLatestQuotes     string // GET
-	GetClock            string // GET
-	GetCalendar         string // GET
-	CreateTransfer      string // POST
-	ListTransfers       string // GET
-	CreateBankRelation  string // POST
-	ListBankRelations   string // GET
+	CreateAccount      string // POST
+	GetAccount         string // GET, {account_id}
+	ListAccounts       string // GET
+	GetPortfolio       string // GET, {account_id}
+	CreateOrder        string // POST
+	ListOrders         string // GET, {account_id}
+	GetOrder           string // GET, {account_id}, {order_id}
+	CancelOrder        string // DELETE, {account_id}, {order_id}
+	ListAssets         string // GET
+	GetAsset           string // GET, {symbol}
+	GetSnapshot        string // GET, {symbol}
+	GetSnapshots       string // GET, ?symbols=
+	GetBars            string // GET, {symbol}
+	GetLatestTrades    string // GET
+	GetLatestQuotes    string // GET
+	GetClock           string // GET
+	GetCalendar        string // GET
+	CreateTransfer     string // POST
+	ListTransfers      string // GET
+	CreateBankRelation string // POST
+	ListBankRelations  string // GET
 }
 
 // DefaultEndpoints returns sensible defaults that match the most common
 // crypto exchange REST API patterns.
 func DefaultEndpoints() Endpoints {
 	return Endpoints{
-		ListAccounts:   "/api/v1/accounts",
-		GetAccount:     "/api/v1/accounts/{account_id}",
-		GetPortfolio:   "/api/v1/accounts/{account_id}/portfolio",
-		CreateOrder:    "/api/v1/orders",
-		ListOrders:     "/api/v1/orders",
-		GetOrder:       "/api/v1/orders/{order_id}",
-		CancelOrder:    "/api/v1/orders/{order_id}",
-		ListAssets:     "/api/v1/assets",
-		GetAsset:       "/api/v1/assets/{symbol}",
-		GetSnapshot:    "/api/v1/ticker/{symbol}",
-		GetSnapshots:   "/api/v1/tickers",
-		GetBars:        "/api/v1/candles/{symbol}",
+		ListAccounts:    "/api/v1/accounts",
+		GetAccount:      "/api/v1/accounts/{account_id}",
+		GetPortfolio:    "/api/v1/accounts/{account_id}/portfolio",
+		CreateOrder:     "/api/v1/orders",
+		ListOrders:      "/api/v1/orders",
+		GetOrder:        "/api/v1/orders/{order_id}",
+		CancelOrder:     "/api/v1/orders/{order_id}",
+		ListAssets:      "/api/v1/assets",
+		GetAsset:        "/api/v1/assets/{symbol}",
+		GetSnapshot:     "/api/v1/ticker/{symbol}",
+		GetSnapshots:    "/api/v1/tickers",
+		GetBars:         "/api/v1/candles/{symbol}",
 		GetLatestTrades: "/api/v1/trades",
 		GetLatestQuotes: "/api/v1/quotes",
-		CreateTransfer: "/api/v1/transfers",
-		ListTransfers:  "/api/v1/transfers",
+		CreateTransfer:  "/api/v1/transfers",
+		ListTransfers:   "/api/v1/transfers",
 	}
 }
 
 // BaseExchange implements provider.Provider with common crypto exchange patterns.
 // Embed this in a concrete exchange provider and override methods as needed.
 type BaseExchange struct {
-	Cfg       Config
-	Eps       Endpoints
-	Client    *http.Client
-	SignFn    func(method, path, body string, timestamp int64) string // custom signer
+	Cfg    Config
+	Eps    Endpoints
+	Client *http.Client
+	SignFn func(method, path, body string, timestamp int64) string // custom signer
 }
 
 // New creates a BaseExchange with default settings.

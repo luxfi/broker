@@ -13,19 +13,19 @@ import (
 // It maintains a consolidated order book and best bid/offer (BBO)
 // for smart order routing decisions.
 type Feed struct {
-	mu       sync.RWMutex
-	books    map[string]*ConsolidatedBook // symbol -> consolidated book
-	tickers  map[string]*Ticker           // symbol -> latest ticker
-	subs     map[string][]chan *Ticker     // symbol -> subscriber channels
-	subsMu   sync.RWMutex
+	mu      sync.RWMutex
+	books   map[string]*ConsolidatedBook // symbol -> consolidated book
+	tickers map[string]*Ticker           // symbol -> latest ticker
+	subs    map[string][]chan *Ticker    // symbol -> subscriber channels
+	subsMu  sync.RWMutex
 }
 
 // ConsolidatedBook aggregates order book depth across providers.
 type ConsolidatedBook struct {
-	Symbol    string        `json:"symbol"`
-	Bids      []PriceLevel  `json:"bids"` // sorted best (highest) first
-	Asks      []PriceLevel  `json:"asks"` // sorted best (lowest) first
-	UpdatedAt time.Time     `json:"updated_at"`
+	Symbol    string       `json:"symbol"`
+	Bids      []PriceLevel `json:"bids"` // sorted best (highest) first
+	Asks      []PriceLevel `json:"asks"` // sorted best (lowest) first
+	UpdatedAt time.Time    `json:"updated_at"`
 }
 
 // PriceLevel is a single price/quantity level with provider attribution.
@@ -37,27 +37,27 @@ type PriceLevel struct {
 
 // Ticker is a consolidated real-time price.
 type Ticker struct {
-	Symbol    string             `json:"symbol"`
-	BestBid   float64            `json:"best_bid"`
-	BestAsk   float64            `json:"best_ask"`
-	BestBidProvider string       `json:"best_bid_provider"`
-	BestAskProvider string       `json:"best_ask_provider"`
-	Spread    float64            `json:"spread"`
-	SpreadBps float64            `json:"spread_bps"` // basis points
-	Last      float64            `json:"last"`
-	Volume24h float64            `json:"volume_24h,omitempty"`
-	Sources   map[string]*Quote  `json:"sources"` // per-provider quotes
-	UpdatedAt time.Time          `json:"updated_at"`
+	Symbol          string            `json:"symbol"`
+	BestBid         float64           `json:"best_bid"`
+	BestAsk         float64           `json:"best_ask"`
+	BestBidProvider string            `json:"best_bid_provider"`
+	BestAskProvider string            `json:"best_ask_provider"`
+	Spread          float64           `json:"spread"`
+	SpreadBps       float64           `json:"spread_bps"` // basis points
+	Last            float64           `json:"last"`
+	Volume24h       float64           `json:"volume_24h,omitempty"`
+	Sources         map[string]*Quote `json:"sources"` // per-provider quotes
+	UpdatedAt       time.Time         `json:"updated_at"`
 }
 
 // Quote is a single provider's quote.
 type Quote struct {
-	Provider  string  `json:"provider"`
-	BidPrice  float64 `json:"bid_price"`
-	BidSize   float64 `json:"bid_size"`
-	AskPrice  float64 `json:"ask_price"`
-	AskSize   float64 `json:"ask_size"`
-	Last      float64 `json:"last"`
+	Provider  string    `json:"provider"`
+	BidPrice  float64   `json:"bid_price"`
+	BidSize   float64   `json:"bid_size"`
+	AskPrice  float64   `json:"ask_price"`
+	AskSize   float64   `json:"ask_size"`
+	Last      float64   `json:"last"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 

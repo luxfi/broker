@@ -87,192 +87,192 @@ func NewServer(registry *provider.Registry, listenAddr string) *Server {
 		r.Use(auth.Middleware(iamEndpoint))
 
 		r.Route("/v1", func(r chi.Router) {
-		r.Get("/providers", s.handleListProviders)
-		r.Get("/providers/capabilities", s.handleGetCapabilities)
+			r.Get("/providers", s.handleListProviders)
+			r.Get("/providers/capabilities", s.handleGetCapabilities)
 
-		r.Get("/accounts", s.handleListAccounts)
-		r.Post("/accounts", s.handleCreateAccount)
+			r.Get("/accounts", s.handleListAccounts)
+			r.Post("/accounts", s.handleCreateAccount)
 
-		// Account-scoped routes require ownership verification.
-		r.Route("/accounts/{provider}/{accountId}", func(r chi.Router) {
-		r.Use(s.requireAccountOwnership)
+			// Account-scoped routes require ownership verification.
+			r.Route("/accounts/{provider}/{accountId}", func(r chi.Router) {
+				r.Use(s.requireAccountOwnership)
 
-		r.Get("/", s.handleGetAccount)
-		r.Get("/portfolio", s.handleGetPortfolio)
+				r.Get("/", s.handleGetAccount)
+				r.Get("/portfolio", s.handleGetPortfolio)
 
-		r.Get("/orders", s.handleListOrders)
-		r.Post("/orders", s.handleCreateOrder)
-		r.Delete("/orders", s.handleCancelAllOrders)
-		r.Get("/orders/{orderId}", s.handleGetOrder)
-		r.Patch("/orders/{orderId}", s.handleReplaceOrder)
-		r.Delete("/orders/{orderId}", s.handleCancelOrder)
+				r.Get("/orders", s.handleListOrders)
+				r.Post("/orders", s.handleCreateOrder)
+				r.Delete("/orders", s.handleCancelAllOrders)
+				r.Get("/orders/{orderId}", s.handleGetOrder)
+				r.Patch("/orders/{orderId}", s.handleReplaceOrder)
+				r.Delete("/orders/{orderId}", s.handleCancelOrder)
 
-		r.Get("/positions/{symbol}", s.handleGetPosition)
-		r.Delete("/positions/{symbol}", s.handleClosePosition)
-		r.Delete("/positions", s.handleCloseAllPositions)
+				r.Get("/positions/{symbol}", s.handleGetPosition)
+				r.Delete("/positions/{symbol}", s.handleClosePosition)
+				r.Delete("/positions", s.handleCloseAllPositions)
 
-		r.Get("/transfers", s.handleListTransfers)
-		r.Post("/transfers", s.handleCreateTransfer)
+				r.Get("/transfers", s.handleListTransfers)
+				r.Post("/transfers", s.handleCreateTransfer)
 
-		r.Get("/bank-relationships", s.handleListBankRelationships)
-		r.Post("/bank-relationships", s.handleCreateBankRelationship)
+				r.Get("/bank-relationships", s.handleListBankRelationships)
+				r.Post("/bank-relationships", s.handleCreateBankRelationship)
 
-		// Extended Account Management
-		r.Patch("/", s.handleUpdateAccount)
-		r.Delete("/", s.handleCloseAccount)
-		r.Get("/activities", s.handleGetAccountActivities)
+				// Extended Account Management
+				r.Patch("/", s.handleUpdateAccount)
+				r.Delete("/", s.handleCloseAccount)
+				r.Get("/activities", s.handleGetAccountActivities)
 
-		// Documents
-		r.Post("/documents", s.handleUploadDocument)
-		r.Get("/documents", s.handleListDocuments)
-		r.Get("/documents/{documentId}", s.handleGetDocument)
-		r.Get("/documents/{documentId}/download", s.handleDownloadDocument)
+				// Documents
+				r.Post("/documents", s.handleUploadDocument)
+				r.Get("/documents", s.handleListDocuments)
+				r.Get("/documents/{documentId}", s.handleGetDocument)
+				r.Get("/documents/{documentId}/download", s.handleDownloadDocument)
 
-		// Transfer Extended (cancel, ACH delete, wire banks)
-		r.Delete("/transfers/{transferId}", s.handleCancelTransfer)
-		r.Delete("/ach-relationships/{achId}", s.handleDeleteACHRelationship)
-		r.Post("/recipient-banks", s.handleCreateRecipientBank)
-		r.Get("/recipient-banks", s.handleListRecipientBanks)
-		r.Delete("/recipient-banks/{bankId}", s.handleDeleteRecipientBank)
+				// Transfer Extended (cancel, ACH delete, wire banks)
+				r.Delete("/transfers/{transferId}", s.handleCancelTransfer)
+				r.Delete("/ach-relationships/{achId}", s.handleDeleteACHRelationship)
+				r.Post("/recipient-banks", s.handleCreateRecipientBank)
+				r.Get("/recipient-banks", s.handleListRecipientBanks)
+				r.Delete("/recipient-banks/{bankId}", s.handleDeleteRecipientBank)
 
-		// ACATS Transfers
-		r.Post("/acats", s.handleCreateACATSTransfer)
-		r.Get("/acats", s.handleListACATSTransfers)
-		r.Get("/acats/{transferId}", s.handleGetACATSTransfer)
-		r.Delete("/acats/{transferId}", s.handleCancelACATSTransfer)
+				// ACATS Transfers
+				r.Post("/acats", s.handleCreateACATSTransfer)
+				r.Get("/acats", s.handleListACATSTransfers)
+				r.Get("/acats/{transferId}", s.handleGetACATSTransfer)
+				r.Delete("/acats/{transferId}", s.handleCancelACATSTransfer)
 
-		// Fixed Income
-		r.Post("/fixed-income/orders", s.handleCreateFixedIncomeOrder)
-		r.Get("/fixed-income/orders/{orderId}", s.handleGetFixedIncomeOrder)
-		r.Delete("/fixed-income/orders/{orderId}", s.handleCancelFixedIncomeOrder)
-		r.Get("/fixed-income/positions", s.handleGetFixedIncomePositions)
-		r.Delete("/fixed-income/positions/{symbol}", s.handleCloseFixedIncomePosition)
+				// Fixed Income
+				r.Post("/fixed-income/orders", s.handleCreateFixedIncomeOrder)
+				r.Get("/fixed-income/orders/{orderId}", s.handleGetFixedIncomeOrder)
+				r.Delete("/fixed-income/orders/{orderId}", s.handleCancelFixedIncomeOrder)
+				r.Get("/fixed-income/positions", s.handleGetFixedIncomePositions)
+				r.Delete("/fixed-income/positions/{symbol}", s.handleCloseFixedIncomePosition)
 
-		// Portfolio History
-		r.Get("/portfolio/history", s.handleGetPortfolioHistory)
+				// Portfolio History
+				r.Get("/portfolio/history", s.handleGetPortfolioHistory)
 
-		// Watchlists
-		r.Post("/watchlists", s.handleCreateWatchlist)
-		r.Get("/watchlists", s.handleListWatchlists)
-		r.Get("/watchlists/{watchlistId}", s.handleGetWatchlist)
-		r.Put("/watchlists/{watchlistId}", s.handleUpdateWatchlist)
-		r.Delete("/watchlists/{watchlistId}", s.handleDeleteWatchlist)
-		r.Post("/watchlists/{watchlistId}/assets", s.handleAddWatchlistAsset)
-		r.Delete("/watchlists/{watchlistId}/{symbol}", s.handleRemoveWatchlistAsset)
+				// Watchlists
+				r.Post("/watchlists", s.handleCreateWatchlist)
+				r.Get("/watchlists", s.handleListWatchlists)
+				r.Get("/watchlists/{watchlistId}", s.handleGetWatchlist)
+				r.Put("/watchlists/{watchlistId}", s.handleUpdateWatchlist)
+				r.Delete("/watchlists/{watchlistId}", s.handleDeleteWatchlist)
+				r.Post("/watchlists/{watchlistId}/assets", s.handleAddWatchlistAsset)
+				r.Delete("/watchlists/{watchlistId}/{symbol}", s.handleRemoveWatchlistAsset)
 
-		// Options Trading (account-scoped)
-		r.Post("/options/orders", s.handleCreateOptionOrder)
-		r.Post("/options/multi-leg", s.handleCreateMultiLegOrder)
-		r.Post("/options/exercise", s.handleExerciseOption)
-		r.Post("/options/do-not-exercise", s.handleDoNotExercise)
-		r.Get("/options/positions", s.handleGetOptionPositions)
-		}) // end /accounts/{provider}/{accountId}
+				// Options Trading (account-scoped)
+				r.Post("/options/orders", s.handleCreateOptionOrder)
+				r.Post("/options/multi-leg", s.handleCreateMultiLegOrder)
+				r.Post("/options/exercise", s.handleExerciseOption)
+				r.Post("/options/do-not-exercise", s.handleDoNotExercise)
+				r.Get("/options/positions", s.handleGetOptionPositions)
+			}) // end /accounts/{provider}/{accountId}
 
-		// ACATS disclosure is provider-scoped, not account-scoped.
-		r.Get("/accounts/{provider}/acats/disclosure", s.handleGetACATSDisclosure)
+			// ACATS disclosure is provider-scoped, not account-scoped.
+			r.Get("/accounts/{provider}/acats/disclosure", s.handleGetACATSDisclosure)
 
-		r.Get("/assets/{provider}", s.handleListAssets)
-		r.Get("/assets/{provider}/{symbolOrId}", s.handleGetAsset)
+			r.Get("/assets/{provider}", s.handleListAssets)
+			r.Get("/assets/{provider}/{symbolOrId}", s.handleGetAsset)
 
-		// Smart Order Routing
-		r.Get("/route/{symbol}", s.handleGetRoutes)
-		r.Get("/route/{symbol}/{quote}", s.handleGetRoutesPair)
-		r.Get("/route/{symbol}/split", s.handleGetSplitPlan)
-		r.Get("/route/{symbol}/{quote}/split", s.handleGetSplitPlanPair)
-		r.Get("/assets", s.handleAggregatedAssets)
-		r.Post("/smart-order", s.handleSmartOrder)
-		r.Post("/smart-order/split", s.handleExecuteSplit)
+			// Smart Order Routing
+			r.Get("/route/{symbol}", s.handleGetRoutes)
+			r.Get("/route/{symbol}/{quote}", s.handleGetRoutesPair)
+			r.Get("/route/{symbol}/split", s.handleGetSplitPlan)
+			r.Get("/route/{symbol}/{quote}/split", s.handleGetSplitPlanPair)
+			r.Get("/assets", s.handleAggregatedAssets)
+			r.Post("/smart-order", s.handleSmartOrder)
+			r.Post("/smart-order/split", s.handleExecuteSplit)
 
-		// TWAP Execution
-		r.Post("/twap", s.handleStartTWAP)
-		r.Get("/twap", s.handleGetTWAP)
-		r.Delete("/twap", s.handleCancelTWAP)
+			// TWAP Execution
+			r.Post("/twap", s.handleStartTWAP)
+			r.Get("/twap", s.handleGetTWAP)
+			r.Delete("/twap", s.handleCancelTWAP)
 
-		// Arbitrage Detection
-		r.Get("/arbitrage", s.handleScanArbitrage)
+			// Arbitrage Detection
+			r.Get("/arbitrage", s.handleScanArbitrage)
 
-		// Market Data
-		r.Get("/market/{provider}/snapshot/{symbol}", s.handleGetSnapshot)
-		r.Get("/market/{provider}/snapshots", s.handleGetSnapshots)
-		r.Get("/market/{provider}/bars/{symbol}", s.handleGetBars)
-		r.Get("/market/{provider}/trades/latest", s.handleGetLatestTrades)
-		r.Get("/market/{provider}/quotes/latest", s.handleGetLatestQuotes)
-		r.Get("/market/{provider}/clock", s.handleGetClock)
-		r.Get("/market/{provider}/calendar", s.handleGetCalendar)
+			// Market Data
+			r.Get("/market/{provider}/snapshot/{symbol}", s.handleGetSnapshot)
+			r.Get("/market/{provider}/snapshots", s.handleGetSnapshots)
+			r.Get("/market/{provider}/bars/{symbol}", s.handleGetBars)
+			r.Get("/market/{provider}/trades/latest", s.handleGetLatestTrades)
+			r.Get("/market/{provider}/quotes/latest", s.handleGetLatestQuotes)
+			r.Get("/market/{provider}/clock", s.handleGetClock)
+			r.Get("/market/{provider}/calendar", s.handleGetCalendar)
 
-		// Consolidated Market Data
-		r.Get("/bbo/{symbol}", s.handleGetBBO)
-		r.Get("/bbo/{symbol}/{quote}", s.handleGetBBOPair)
-		r.Get("/stream", s.stream.HandleSSE)
+			// Consolidated Market Data
+			r.Get("/bbo/{symbol}", s.handleGetBBO)
+			r.Get("/bbo/{symbol}/{quote}", s.handleGetBBOPair)
+			r.Get("/stream", s.stream.HandleSSE)
 
-		// Risk & Audit
-		r.Get("/risk/check", s.handleRiskCheck)
-		r.Get("/audit", s.handleAuditQuery)
-		r.Get("/audit/stats", s.handleAuditStats)
-		r.Get("/audit/export", s.handleAuditExport)
+			// Risk & Audit
+			r.Get("/risk/check", s.handleRiskCheck)
+			r.Get("/audit", s.handleAuditQuery)
+			r.Get("/audit/stats", s.handleAuditStats)
+			r.Get("/audit/export", s.handleAuditExport)
 
-		// Funding (deposit/withdraw via payment processors)
-		// Note: /v1/fund/webhook/{processor} is registered before auth middleware.
-		r.Route("/fund", func(r chi.Router) {
-			r.Post("/deposit", s.handleDeposit)
-			r.Post("/withdraw", s.handleWithdraw)
-			r.Get("/processors", s.handleListProcessors)
-		})
+			// Funding (deposit/withdraw via payment processors)
+			// Note: /v1/fund/webhook/{processor} is registered before auth middleware.
+			r.Route("/fund", func(r chi.Router) {
+				r.Post("/deposit", s.handleDeposit)
+				r.Post("/withdraw", s.handleWithdraw)
+				r.Get("/processors", s.handleListProcessors)
+			})
 
-		// Journals (inter-account transfers)
-		r.Post("/journals/{provider}", s.handleCreateJournal)
-		r.Get("/journals/{provider}", s.handleListJournals)
-		r.Get("/journals/{provider}/{journalId}", s.handleGetJournal)
-		r.Delete("/journals/{provider}/{journalId}", s.handleDeleteJournal)
-		r.Post("/journals/{provider}/batch", s.handleCreateBatchJournal)
-		r.Post("/journals/{provider}/reverse_batch", s.handleReverseBatchJournal)
+			// Journals (inter-account transfers)
+			r.Post("/journals/{provider}", s.handleCreateJournal)
+			r.Get("/journals/{provider}", s.handleListJournals)
+			r.Get("/journals/{provider}/{journalId}", s.handleGetJournal)
+			r.Delete("/journals/{provider}/{journalId}", s.handleDeleteJournal)
+			r.Post("/journals/{provider}/batch", s.handleCreateBatchJournal)
+			r.Post("/journals/{provider}/reverse_batch", s.handleReverseBatchJournal)
 
-		// Fixed Income (non-account-scoped)
-		r.Get("/assets/fixed-income/corporates", s.handleListCorporateBonds)
-		r.Get("/assets/fixed-income/treasuries", s.handleListTreasuryBonds)
+			// Fixed Income (non-account-scoped)
+			r.Get("/assets/fixed-income/corporates", s.handleListCorporateBonds)
+			r.Get("/assets/fixed-income/treasuries", s.handleListTreasuryBonds)
 
-		// Crypto Market Data
-		r.Get("/market/{provider}/crypto/bars", s.handleGetCryptoBars)
-		r.Get("/market/{provider}/crypto/quotes", s.handleGetCryptoQuotes)
-		r.Get("/market/{provider}/crypto/trades", s.handleGetCryptoTrades)
-		r.Get("/market/{provider}/crypto/snapshots", s.handleGetCryptoSnapshots)
+			// Crypto Market Data
+			r.Get("/market/{provider}/crypto/bars", s.handleGetCryptoBars)
+			r.Get("/market/{provider}/crypto/quotes", s.handleGetCryptoQuotes)
+			r.Get("/market/{provider}/crypto/trades", s.handleGetCryptoTrades)
+			r.Get("/market/{provider}/crypto/snapshots", s.handleGetCryptoSnapshots)
 
-		// Event Streaming (SSE)
-		r.Get("/events/{provider}/trades", s.handleStreamTradeEvents)
-		r.Get("/events/{provider}/accounts", s.handleStreamAccountEvents)
-		r.Get("/events/{provider}/transfers", s.handleStreamTransferEvents)
-		r.Get("/events/{provider}/journals", s.handleStreamJournalEvents)
+			// Event Streaming (SSE)
+			r.Get("/events/{provider}/trades", s.handleStreamTradeEvents)
+			r.Get("/events/{provider}/accounts", s.handleStreamAccountEvents)
+			r.Get("/events/{provider}/transfers", s.handleStreamTransferEvents)
+			r.Get("/events/{provider}/journals", s.handleStreamJournalEvents)
 
-		// Options Trading (non-account-scoped)
-		r.Get("/options/{provider}/expirations/{symbol}", s.handleGetOptionExpirations)
-		r.Get("/options/{provider}/chain/{symbol}", s.handleGetOptionChain)
-		r.Get("/options/{provider}/chain/{symbol}/{expiration}", s.handleGetOptionChain)
-		r.Get("/options/{provider}/quote/{contractSymbol}", s.handleGetOptionQuote)
-		r.Get("/options/{provider}/greeks/{contractSymbol}", s.handleGetOptionGreeks)
-		r.Get("/options/route", s.handleRouteOptionOrder)
+			// Options Trading (non-account-scoped)
+			r.Get("/options/{provider}/expirations/{symbol}", s.handleGetOptionExpirations)
+			r.Get("/options/{provider}/chain/{symbol}", s.handleGetOptionChain)
+			r.Get("/options/{provider}/chain/{symbol}/{expiration}", s.handleGetOptionChain)
+			r.Get("/options/{provider}/quote/{contractSymbol}", s.handleGetOptionQuote)
+			r.Get("/options/{provider}/greeks/{contractSymbol}", s.handleGetOptionGreeks)
+			r.Get("/options/route", s.handleRouteOptionOrder)
 
-		// Exchange frontend API (provider-agnostic, user-resolved)
-		r.Route("/exchange", func(r chi.Router) {
-			r.Get("/assets", s.handleFrontendAssets)
-			r.Get("/crypto-prices", s.handleCryptoPrices)
-			r.Get("/charts/{symbol}", s.handleChartData)
-			r.Get("/orders", s.handleFrontendOrders)
-			r.Post("/orders", s.handleFrontendCreateOrder)
-			r.Get("/positions", s.handleFrontendPositions)
-			r.Get("/portfolio", s.handleFrontendPortfolio)
+			// Exchange frontend API (provider-agnostic, user-resolved)
+			r.Route("/exchange", func(r chi.Router) {
+				r.Get("/assets", s.handleFrontendAssets)
+				r.Get("/crypto-prices", s.handleCryptoPrices)
+				r.Get("/charts/{symbol}", s.handleChartData)
+				r.Get("/orders", s.handleFrontendOrders)
+				r.Post("/orders", s.handleFrontendCreateOrder)
+				r.Get("/positions", s.handleFrontendPositions)
+				r.Get("/portfolio", s.handleFrontendPortfolio)
 
-			// Options (provider-agnostic, user-resolved)
-			r.Route("/options", func(r chi.Router) {
-				r.Post("/orders", s.handleExchangeCreateOptionOrder)
-				r.Post("/multi-leg", s.handleExchangeCreateMultiLegOrder)
-				r.Get("/chain/{symbol}", s.handleExchangeOptionChain)
-				r.Get("/expirations/{symbol}", s.handleExchangeOptionExpirations)
-				r.Get("/positions", s.handleExchangeOptionPositions)
-				r.Post("/orders/{id}/cancel", s.handleExchangeCancelOptionOrder)
-				r.Post("/exercise/{id}", s.handleExchangeExerciseOption)
+				// Options (provider-agnostic, user-resolved)
+				r.Route("/options", func(r chi.Router) {
+					r.Post("/orders", s.handleExchangeCreateOptionOrder)
+					r.Post("/multi-leg", s.handleExchangeCreateMultiLegOrder)
+					r.Get("/chain/{symbol}", s.handleExchangeOptionChain)
+					r.Get("/expirations/{symbol}", s.handleExchangeOptionExpirations)
+					r.Get("/positions", s.handleExchangeOptionPositions)
+					r.Post("/orders/{id}/cancel", s.handleExchangeCancelOptionOrder)
+					r.Post("/exercise/{id}", s.handleExchangeExerciseOption)
+				})
 			})
 		})
-	})
 	}) // end auth group
 
 	s.router = r

@@ -46,9 +46,9 @@ const (
 
 // Status bits in the flags lower byte. The opcode occupies the upper byte.
 const (
-	StatusOK       uint16 = 0x0000
-	StatusErr      uint16 = 0x0001
-	StatusNotImpl  uint16 = 0x0002
+	StatusOK      uint16 = 0x0000
+	StatusErr     uint16 = 0x0001
+	StatusNotImpl uint16 = 0x0002
 )
 
 // packFlags encodes opcode + status into the 16-bit flags header field.
@@ -62,14 +62,16 @@ func unpackFlags(flags uint16) (op, status uint16) {
 }
 
 // ───────────────────────────────────────────────────────────────────────
-//  ErrorResp (flags.status != OK)
+//
+//	ErrorResp (flags.status != OK)
+//
 // ───────────────────────────────────────────────────────────────────────
 //
-//   offset  type    name
-//   ──────  ──────  ───────────
-//        0  text    code     (8 bytes: 4 off + 4 len)
-//        8  text    message  (8 bytes: 4 off + 4 len)
-//       16 (total)
+//	offset  type    name
+//	──────  ──────  ───────────
+//	     0  text    code     (8 bytes: 4 off + 4 len)
+//	     8  text    message  (8 bytes: 4 off + 4 len)
+//	    16 (total)
 const (
 	errOffCode    = 0
 	errOffMessage = 8
@@ -90,11 +92,13 @@ func readError(root zap.Object) (code, message string) {
 }
 
 // ───────────────────────────────────────────────────────────────────────
-//  SymbolReq — single-symbol request (GetSnapshot, GetAsset, GetBook)
+//
+//	SymbolReq — single-symbol request (GetSnapshot, GetAsset, GetBook)
+//
 // ───────────────────────────────────────────────────────────────────────
 //
-//        0  text    symbol   (8)
-//        8 (total)
+//	0  text    symbol   (8)
+//	8 (total)
 const (
 	symReqOffSymbol = 0
 	symReqSize      = 8
@@ -113,11 +117,13 @@ func readSymbolReq(root zap.Object) string {
 }
 
 // ───────────────────────────────────────────────────────────────────────
-//  ClassReq — asset class filter (ListAssets)
+//
+//	ClassReq — asset class filter (ListAssets)
+//
 // ───────────────────────────────────────────────────────────────────────
 //
-//        0  text    class   (8)
-//        8 (total)
+//	0  text    class   (8)
+//	8 (total)
 const (
 	classReqOffClass = 0
 	classReqSize     = 8
@@ -136,14 +142,16 @@ func readClassReq(root zap.Object) string {
 }
 
 // ───────────────────────────────────────────────────────────────────────
-//  SymbolsReq — multi-symbol request (GetSnapshots/Quotes/Trades)
+//
+//	SymbolsReq — multi-symbol request (GetSnapshots/Quotes/Trades)
+//
 // ───────────────────────────────────────────────────────────────────────
 //
 // Symbols are packed as a single comma-separated text field. This keeps the
 // wire layout compact without needing a heterogeneous list-of-text encoding.
 //
-//        0  text    symbols  (8) — CSV: "BTC/USD,ETH/USD,SOL/USD"
-//        8 (total)
+//	0  text    symbols  (8) — CSV: "BTC/USD,ETH/USD,SOL/USD"
+//	8 (total)
 const (
 	symsReqOffSymbols = 0
 	symsReqSize       = 8
@@ -163,15 +171,17 @@ func readSymbolsReq(root zap.Object) []string {
 }
 
 // ───────────────────────────────────────────────────────────────────────
-//  BarsReq — historical bars query (GetBars)
+//
+//	BarsReq — historical bars query (GetBars)
+//
 // ───────────────────────────────────────────────────────────────────────
 //
-//        0  text    symbol     (8)
-//        8  text    timeframe  (8)
-//       16  text    start      (8)
-//       24  text    end        (8)
-//       32  int64   limit      (8)
-//       40 (total)
+//	 0  text    symbol     (8)
+//	 8  text    timeframe  (8)
+//	16  text    start      (8)
+//	24  text    end        (8)
+//	32  int64   limit      (8)
+//	40 (total)
 const (
 	barsReqOffSymbol    = 0
 	barsReqOffTimeframe = 8
@@ -209,11 +219,13 @@ func readBarsReq(root zap.Object) barsReq {
 }
 
 // ───────────────────────────────────────────────────────────────────────
-//  AccountReq — account-scoped request (GetPortfolio, ListOrders)
+//
+//	AccountReq — account-scoped request (GetPortfolio, ListOrders)
+//
 // ───────────────────────────────────────────────────────────────────────
 //
-//        0  text    account  (8)
-//        8 (total)
+//	0  text    account  (8)
+//	8 (total)
 const (
 	acctReqOffAccount = 0
 	acctReqSize       = 8
@@ -232,12 +244,14 @@ func readAccountReq(root zap.Object) string {
 }
 
 // ───────────────────────────────────────────────────────────────────────
-//  AccountOrderReq — (account, order_id) (GetOrder, CancelOrder)
+//
+//	AccountOrderReq — (account, order_id) (GetOrder, CancelOrder)
+//
 // ───────────────────────────────────────────────────────────────────────
 //
-//        0  text    account   (8)
-//        8  text    order_id  (8)
-//       16 (total)
+//	 0  text    account   (8)
+//	 8  text    order_id  (8)
+//	16 (total)
 const (
 	acctOrderReqOffAccount = 0
 	acctOrderReqOffOrder   = 8
@@ -258,20 +272,22 @@ func readAccountOrderReq(root zap.Object) (account, order string) {
 }
 
 // ───────────────────────────────────────────────────────────────────────
-//  CreateOrderReq — place an order
+//
+//	CreateOrderReq — place an order
+//
 // ───────────────────────────────────────────────────────────────────────
 //
-//        0  text     account           (8)
-//        8  text     symbol            (8)
-//       16  text     side              (8)  — "buy" | "sell"
-//       24  text     order_type        (8)  — "market" | "limit" | "stop" | "stop_limit"
-//       32  text     time_in_force     (8)  — "day" | "gtc" | "ioc" | "fok"
-//       40  text     client_order_id   (8)
-//       48  float64  qty               (8)
-//       56  float64  notional          (8)
-//       64  float64  limit_price       (8)
-//       72  float64  stop_price        (8)
-//       80 (total)
+//	 0  text     account           (8)
+//	 8  text     symbol            (8)
+//	16  text     side              (8)  — "buy" | "sell"
+//	24  text     order_type        (8)  — "market" | "limit" | "stop" | "stop_limit"
+//	32  text     time_in_force     (8)  — "day" | "gtc" | "ioc" | "fok"
+//	40  text     client_order_id   (8)
+//	48  float64  qty               (8)
+//	56  float64  notional          (8)
+//	64  float64  limit_price       (8)
+//	72  float64  stop_price        (8)
+//	80 (total)
 const (
 	coReqOffAccount   = 0
 	coReqOffSymbol    = 8
@@ -324,19 +340,21 @@ func readCreateOrderReq(root zap.Object) createOrderReq {
 }
 
 // ───────────────────────────────────────────────────────────────────────
-//  SnapshotResp — single quote snapshot
+//
+//	SnapshotResp — single quote snapshot
+//
 // ───────────────────────────────────────────────────────────────────────
 //
-//        0  text     symbol        (8)
-//        8  float64  last_price    (8)
-//       16  float64  last_size     (8)
-//       24  int64    last_time_ns  (8)
-//       32  float64  bid_price     (8)
-//       40  float64  bid_size      (8)
-//       48  float64  ask_price     (8)
-//       56  float64  ask_size      (8)
-//       64  int64    quote_time_ns (8)
-//       72 (total)
+//	 0  text     symbol        (8)
+//	 8  float64  last_price    (8)
+//	16  float64  last_size     (8)
+//	24  int64    last_time_ns  (8)
+//	32  float64  bid_price     (8)
+//	40  float64  bid_size      (8)
+//	48  float64  ask_price     (8)
+//	56  float64  ask_size      (8)
+//	64  int64    quote_time_ns (8)
+//	72 (total)
 const (
 	snapOffSymbol    = 0
 	snapOffLastPrice = 8
@@ -351,10 +369,10 @@ const (
 )
 
 type snapshot struct {
-	symbol                                            string
-	lastPrice, lastSize, bidPrice, bidSize            float64
-	askPrice, askSize                                 float64
-	lastNs, quoteNs                                   int64
+	symbol                                 string
+	lastPrice, lastSize, bidPrice, bidSize float64
+	askPrice, askSize                      float64
+	lastNs, quoteNs                        int64
 }
 
 // writeSnapshot writes a snapshot struct into b and returns its abs offset.
@@ -404,18 +422,20 @@ func readSnapshotRoot(root zap.Object) snapshot {
 }
 
 // ───────────────────────────────────────────────────────────────────────
-//  AssetResp — single asset record
+//
+//	AssetResp — single asset record
+//
 // ───────────────────────────────────────────────────────────────────────
 //
-//        0  text     id        (8)
-//        8  text     symbol    (8)
-//       16  text     name      (8)
-//       24  text     class     (8)
-//       32  text     exchange  (8)
-//       40  text     status    (8)
-//       48  text     provider  (8)
-//       56  bool     tradable  (1, padded to 8)
-//       64 (total, 8-aligned)
+//	 0  text     id        (8)
+//	 8  text     symbol    (8)
+//	16  text     name      (8)
+//	24  text     class     (8)
+//	32  text     exchange  (8)
+//	40  text     status    (8)
+//	48  text     provider  (8)
+//	56  bool     tradable  (1, padded to 8)
+//	64 (total, 8-aligned)
 const (
 	assetOffID       = 0
 	assetOffSymbol   = 8
@@ -430,7 +450,7 @@ const (
 
 type asset struct {
 	id, symbol, name, class, exchange, status, provider string
-	tradable                                             bool
+	tradable                                            bool
 }
 
 func buildAssetResp(a asset) []byte {
@@ -462,26 +482,28 @@ func readAssetRoot(root zap.Object) asset {
 }
 
 // ───────────────────────────────────────────────────────────────────────
-//  OrderResp — single order record
+//
+//	OrderResp — single order record
+//
 // ───────────────────────────────────────────────────────────────────────
 //
-//        0  text     id               (8)
-//        8  text     client_order_id  (8)
-//       16  text     account          (8)
-//       24  text     symbol           (8)
-//       32  text     side             (8)
-//       40  text     order_type       (8)
-//       48  text     time_in_force    (8)
-//       56  text     status           (8)
-//       64  float64  qty              (8)
-//       72  float64  filled_qty       (8)
-//       80  float64  limit_price      (8)
-//       88  float64  stop_price       (8)
-//       96  float64  avg_fill_price   (8)
-//      104  int64    created_ns       (8)
-//      112  int64    updated_ns       (8)
-//      120  int64    filled_ns        (8)
-//      128 (total)
+//	  0  text     id               (8)
+//	  8  text     client_order_id  (8)
+//	 16  text     account          (8)
+//	 24  text     symbol           (8)
+//	 32  text     side             (8)
+//	 40  text     order_type       (8)
+//	 48  text     time_in_force    (8)
+//	 56  text     status           (8)
+//	 64  float64  qty              (8)
+//	 72  float64  filled_qty       (8)
+//	 80  float64  limit_price      (8)
+//	 88  float64  stop_price       (8)
+//	 96  float64  avg_fill_price   (8)
+//	104  int64    created_ns       (8)
+//	112  int64    updated_ns       (8)
+//	120  int64    filled_ns        (8)
+//	128 (total)
 const (
 	ordOffID        = 0
 	ordOffCliID     = 8
@@ -574,11 +596,13 @@ func readOrderRoot(root zap.Object) order {
 }
 
 // ───────────────────────────────────────────────────────────────────────
-//  EmptyResp — acknowledgment payload (CancelOrder success, etc.)
+//
+//	EmptyResp — acknowledgment payload (CancelOrder success, etc.)
+//
 // ───────────────────────────────────────────────────────────────────────
 //
-//        0  bool    ok   (1, padded to 8)
-//        8 (total)
+//	0  bool    ok   (1, padded to 8)
+//	8 (total)
 const (
 	emptyOffOK = 0
 	emptySize  = 8

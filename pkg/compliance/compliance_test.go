@@ -182,7 +182,8 @@ func TestKYCVerifyInvalidBody(t *testing.T) {
 	// Send a raw invalid JSON body.
 	req := httptest.NewRequest("POST", "/kyc/verify", bytes.NewBufferString("{invalid"))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-User-Id", "test-user-001"); req.Header.Set("X-Org-Id", "built-in")
+	req.Header.Set("X-User-Id", "test-user-001")
+	req.Header.Set("X-Org-Id", "built-in")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
@@ -313,7 +314,8 @@ func TestPipelineCreateInvalidBody(t *testing.T) {
 	r, _ := newTestRouter()
 	req := httptest.NewRequest("POST", "/pipelines/", bytes.NewBufferString("not json"))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-User-Id", "test-user-001"); req.Header.Set("X-Org-Id", "built-in")
+	req.Header.Set("X-User-Id", "test-user-001")
+	req.Header.Set("X-Org-Id", "built-in")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {

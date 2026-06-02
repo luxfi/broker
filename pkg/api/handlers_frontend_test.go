@@ -14,12 +14,12 @@ import (
 
 // mockProvider implements provider.Provider for testing frontend handlers.
 type mockProvider struct {
-	name     string
-	accounts []*types.Account
-	assets   []*types.Asset
-	snapshot map[string]*types.MarketSnapshot
-	bars     []*types.Bar
-	orders   []*types.Order
+	name      string
+	accounts  []*types.Account
+	assets    []*types.Asset
+	snapshot  map[string]*types.MarketSnapshot
+	bars      []*types.Bar
+	orders    []*types.Order
 	portfolio *types.Portfolio
 }
 
@@ -253,9 +253,9 @@ func TestCryptoPricesWithData(t *testing.T) {
 		name: "testprov",
 		snapshot: map[string]*types.MarketSnapshot{
 			"BTC/USD": {
-				Symbol:      "BTC/USD",
-				LatestTrade: &types.Trade{Price: 50000.0},
-				DailyBar:    &types.Bar{Open: 49000, High: 51000, Low: 48000, Close: 50000, Volume: 1234},
+				Symbol:       "BTC/USD",
+				LatestTrade:  &types.Trade{Price: 50000.0},
+				DailyBar:     &types.Bar{Open: 49000, High: 51000, Low: 48000, Close: 50000, Volume: 1234},
 				PrevDailyBar: &types.Bar{Close: 49000},
 			},
 		},
@@ -668,15 +668,15 @@ func TestCryptoPricesMultipleSymbols(t *testing.T) {
 		name: "testprov",
 		snapshot: map[string]*types.MarketSnapshot{
 			"BTC/USD": {
-				Symbol:      "BTC/USD",
-				LatestTrade: &types.Trade{Price: 50000.0},
-				DailyBar:    &types.Bar{Open: 49000, High: 51000, Low: 48000, Close: 50000, Volume: 1234},
+				Symbol:       "BTC/USD",
+				LatestTrade:  &types.Trade{Price: 50000.0},
+				DailyBar:     &types.Bar{Open: 49000, High: 51000, Low: 48000, Close: 50000, Volume: 1234},
 				PrevDailyBar: &types.Bar{Close: 49000},
 			},
 			"ETH/USD": {
-				Symbol:      "ETH/USD",
-				LatestTrade: &types.Trade{Price: 3000.0},
-				DailyBar:    &types.Bar{Open: 2900, High: 3100, Low: 2800, Close: 3000, Volume: 5678},
+				Symbol:       "ETH/USD",
+				LatestTrade:  &types.Trade{Price: 3000.0},
+				DailyBar:     &types.Bar{Open: 2900, High: 3100, Low: 2800, Close: 3000, Volume: 5678},
 				PrevDailyBar: &types.Bar{Close: 2900},
 			},
 			"SOL/USD": {

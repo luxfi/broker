@@ -16,21 +16,21 @@ import (
 
 // Alpaca options contract response from /v1/options/contracts
 type alpacaOptionContract struct {
-	ID               string  `json:"id"`
-	Symbol           string  `json:"symbol"`
-	Name             string  `json:"name"`
-	Status           string  `json:"status"`
-	Tradable         bool    `json:"tradable"`
-	ExpirationDate   string  `json:"expiration_date"`
-	RootSymbol       string  `json:"root_symbol"`
-	UnderlyingSymbol string  `json:"underlying_symbol"`
-	Type             string  `json:"type"` // call, put
-	Style            string  `json:"style"`
-	StrikePrice      string  `json:"strike_price"`
-	Size             string  `json:"size"`
-	OpenInterest     string  `json:"open_interest"`
-	ClosePrice       string  `json:"close_price"`
-	OpenPrice        string  `json:"open_price"`
+	ID               string `json:"id"`
+	Symbol           string `json:"symbol"`
+	Name             string `json:"name"`
+	Status           string `json:"status"`
+	Tradable         bool   `json:"tradable"`
+	ExpirationDate   string `json:"expiration_date"`
+	RootSymbol       string `json:"root_symbol"`
+	UnderlyingSymbol string `json:"underlying_symbol"`
+	Type             string `json:"type"` // call, put
+	Style            string `json:"style"`
+	StrikePrice      string `json:"strike_price"`
+	Size             string `json:"size"`
+	OpenInterest     string `json:"open_interest"`
+	ClosePrice       string `json:"close_price"`
+	OpenPrice        string `json:"open_price"`
 }
 
 // Alpaca option snapshot from data API

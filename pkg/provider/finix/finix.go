@@ -80,10 +80,10 @@ func (p *Provider) CreateAccount(ctx context.Context, req *types.CreateAccountRe
 	// Create a Finix Identity (KYC entity)
 	identity := map[string]interface{}{
 		"entity": map[string]interface{}{
-			"first_name":    req.Identity.GivenName,
-			"last_name":     req.Identity.FamilyName,
-			"email":         req.Contact.Email,
-			"phone":         req.Contact.Phone,
+			"first_name": req.Identity.GivenName,
+			"last_name":  req.Identity.FamilyName,
+			"email":      req.Contact.Email,
+			"phone":      req.Contact.Phone,
 			"personal_address": map[string]interface{}{
 				"line1":       firstOrEmpty(req.Contact.Street),
 				"city":        req.Contact.City,

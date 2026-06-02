@@ -7,16 +7,16 @@ import (
 // ArbitrageOpportunity represents a detected cross-venue price discrepancy
 // where the best bid on one venue exceeds the best ask on another.
 type ArbitrageOpportunity struct {
-	Symbol      string  `json:"symbol"`
-	BuyVenue    string  `json:"buy_venue"`    // venue with the lower ask
-	SellVenue   string  `json:"sell_venue"`   // venue with the higher bid
-	BuyPrice    float64 `json:"buy_price"`    // ask on buy venue
-	SellPrice   float64 `json:"sell_price"`   // bid on sell venue
-	SpreadAbs   float64 `json:"spread_abs"`   // sell - buy
-	SpreadBps   float64 `json:"spread_bps"`   // in basis points
-	BuySize     float64 `json:"buy_size"`     // available size at ask
-	SellSize    float64 `json:"sell_size"`    // available size at bid
-	DetectedAt  time.Time `json:"detected_at"`
+	Symbol     string    `json:"symbol"`
+	BuyVenue   string    `json:"buy_venue"`  // venue with the lower ask
+	SellVenue  string    `json:"sell_venue"` // venue with the higher bid
+	BuyPrice   float64   `json:"buy_price"`  // ask on buy venue
+	SellPrice  float64   `json:"sell_price"` // bid on sell venue
+	SpreadAbs  float64   `json:"spread_abs"` // sell - buy
+	SpreadBps  float64   `json:"spread_bps"` // in basis points
+	BuySize    float64   `json:"buy_size"`   // available size at ask
+	SellSize   float64   `json:"sell_size"`  // available size at bid
+	DetectedAt time.Time `json:"detected_at"`
 }
 
 // ArbitrageDetector scans the consolidated feed for cross-venue arbitrage.

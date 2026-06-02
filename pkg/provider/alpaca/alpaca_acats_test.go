@@ -145,16 +145,16 @@ func TestCreateACATSTransfer_Full(t *testing.T) {
 				return
 			}
 			json.NewEncoder(w).Encode(map[string]interface{}{
-				"id":                   "xfer-1",
-				"account_id":          "acct-1",
-				"direction":           "INCOMING",
-				"status":              "QUEUED",
-				"type":                "ACATS",
-				"transfer_type":       "FULL",
+				"id":                    "xfer-1",
+				"account_id":            "acct-1",
+				"direction":             "INCOMING",
+				"status":                "QUEUED",
+				"type":                  "ACATS",
+				"transfer_type":         "FULL",
 				"contra_account_number": "999-888",
 				"contra_broker_number":  "0123",
-				"created_at":          "2026-04-05T10:00:00Z",
-				"updated_at":          "2026-04-05T10:00:00Z",
+				"created_at":            "2026-04-05T10:00:00Z",
+				"updated_at":            "2026-04-05T10:00:00Z",
 			})
 		},
 	})
@@ -207,7 +207,7 @@ func TestGetACATSTransfer(t *testing.T) {
 		"/v1/accounts/acct-1/transfers/xfer-1": func(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"id":            "xfer-1",
-				"account_id":   "acct-1",
+				"account_id":    "acct-1",
 				"status":        "APPROVED",
 				"direction":     "INCOMING",
 				"type":          "ACATS",
@@ -232,7 +232,7 @@ func TestGetACATSRejection(t *testing.T) {
 		"/v1/accounts/acct-1/transfers/xfer-rej": func(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"id":            "xfer-rej",
-				"account_id":   "acct-1",
+				"account_id":    "acct-1",
 				"status":        "REJECTED",
 				"direction":     "INCOMING",
 				"type":          "ACATS",

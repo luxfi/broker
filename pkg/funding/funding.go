@@ -28,9 +28,9 @@ func NewWithRegistry(r *processor.Registry) *Service {
 type DepositRequest struct {
 	AccountID     string `json:"account_id"`
 	Provider      string `json:"provider"`
-	Amount        int64  `json:"amount"`          // cents
-	Currency      string `json:"currency"`         // e.g. "usd", "btc"
-	PaymentMethod string `json:"payment_method"`   // "card", "bank_transfer", "crypto"
+	Amount        int64  `json:"amount"`            // cents
+	Currency      string `json:"currency"`          // e.g. "usd", "btc"
+	PaymentMethod string `json:"payment_method"`    // "card", "bank_transfer", "crypto"
 	Token         string `json:"token,omitempty"`   // payment method nonce/token (card)
 	TxHash        string `json:"tx_hash,omitempty"` // on-chain tx hash (crypto)
 	Chain         string `json:"chain,omitempty"`   // blockchain network (crypto)
@@ -41,7 +41,7 @@ type DepositRequest struct {
 type WithdrawRequest struct {
 	AccountID      string `json:"account_id"`
 	Provider       string `json:"provider"`
-	Amount         int64  `json:"amount"`   // cents
+	Amount         int64  `json:"amount"` // cents
 	Currency       string `json:"currency"`
 	PaymentMethod  string `json:"payment_method"` // "bank_transfer", "crypto"
 	RelationshipID string `json:"relationship_id,omitempty"`

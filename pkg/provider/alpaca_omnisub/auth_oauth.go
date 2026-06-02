@@ -57,9 +57,9 @@ type jwtSigner struct {
 	tokenURL   string
 	httpClient *http.Client
 
-	mu        sync.Mutex
-	tokenVal  string
-	tokenExp  time.Time
+	mu       sync.Mutex
+	tokenVal string
+	tokenExp time.Time
 }
 
 // newJWTSigner parses the PEM private key and returns a signer bound to the
