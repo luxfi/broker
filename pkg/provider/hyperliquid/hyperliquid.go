@@ -68,7 +68,11 @@ func (p *Provider) ListAssets(ctx context.Context, _ string) ([]*types.Asset, er
 	if err != nil {
 		return nil, err
 	}
-	var meta struct{ Universe []struct{ Name string `json:"name"` } `json:"universe"` }
+	var meta struct {
+		Universe []struct {
+			Name string `json:"name"`
+		} `json:"universe"`
+	}
 	if err := json.Unmarshal(data, &meta); err != nil {
 		return nil, fmt.Errorf("hyperliquid: parse meta: %w", err)
 	}
@@ -198,14 +202,17 @@ func (p *Provider) GetLatestTrades(ctx context.Context, symbols []string) (map[s
 		if err != nil {
 			continue
 		}
-		var tr []struct{ Px, Sz string; Time int64 `json:"time"` }
+		var tr []struct {
+			Px, Sz string
+			Time   int64 `json:"time"`
+		}
 		if json.Unmarshal(data, &tr) != nil || len(tr) == 0 {
 			continue
 		}
 		t := tr[len(tr)-1]
 		out[sym] = &types.Trade{
 			Timestamp: time.UnixMilli(t.Time).UTC().Format(time.RFC3339),
-			Price: pf(t.Px), Size: pf(t.Sz), Exchange: "hyperliquid",
+			Price:     pf(t.Px), Size: pf(t.Sz), Exchange: "hyperliquid",
 		}
 	}
 	return out, nil
@@ -349,7 +356,9 @@ func (p *Provider) CancelOrder(_ context.Context, _, _ string) error { return Er
 func (p *Provider) CreateTransfer(_ context.Context, _ string, _ *types.CreateTransferRequest) (*types.Transfer, error) {
 	return nil, ErrNotImplemented
 }
-func (p *Provider) ListTransfers(_ context.Context, _ string) ([]*types.Transfer, error) { return nil, nil }
+func (p *Provider) ListTransfers(_ context.Context, _ string) ([]*types.Transfer, error) {
+	return nil, nil
+}
 func (p *Provider) CreateBankRelationship(_ context.Context, _, _, _, _, _ string) (*types.BankRelationship, error) {
 	return nil, ErrNotImplemented
 }

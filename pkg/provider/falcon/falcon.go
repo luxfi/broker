@@ -20,9 +20,9 @@ const (
 // Config for FalconX provider.
 // FalconX is an institutional crypto trading platform with RFQ (Request for Quote) model.
 type Config struct {
-	BaseURL   string `json:"base_url"`
-	APIKey    string `json:"api_key"`
-	APISecret string `json:"api_secret"`
+	BaseURL    string `json:"base_url"`
+	APIKey     string `json:"api_key"`
+	APISecret  string `json:"api_secret"`
 	Passphrase string `json:"passphrase"`
 }
 
@@ -37,7 +37,7 @@ func New(cfg Config) *Provider {
 		cfg.BaseURL = SandboxURL
 	}
 	return &Provider{
-		cfg: cfg,
+		cfg:    cfg,
 		client: &http.Client{Timeout: 30 * time.Second},
 	}
 }

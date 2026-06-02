@@ -222,8 +222,8 @@ func (h *applicationHandler) handleStep2(w http.ResponseWriter, r *http.Request)
 	}
 
 	var req struct {
-		Provider       string `json:"provider"`        // onfido, berbix, idmerit
-		VerificationID string `json:"verification_id"` // external verification ID
+		Provider       string `json:"provider"`         // onfido, berbix, idmerit
+		VerificationID string `json:"verification_id"`  // external verification ID
 		Status         string `json:"status,omitempty"` // pending, verified, failed
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

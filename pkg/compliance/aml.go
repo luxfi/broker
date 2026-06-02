@@ -205,10 +205,10 @@ type walletScreenRequest struct {
 // walletScreenResponse is the result of a wallet address screen.
 type walletScreenResponse struct {
 	Address    string `json:"address"`
-	Risk       string `json:"risk"`       // low, medium, high, blocked
+	Risk       string `json:"risk"` // low, medium, high, blocked
 	Sanctioned bool   `json:"sanctioned"`
 	Scam       bool   `json:"scam"`
-	Source     string `json:"source"`     // ofac, scamsniffer, jube
+	Source     string `json:"source"` // ofac, scamsniffer, jube
 }
 
 // handleWalletScreen checks a crypto wallet address against OFAC SDN and Jube.

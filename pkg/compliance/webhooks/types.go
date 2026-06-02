@@ -17,14 +17,14 @@ type TradeWebhookPayload struct {
 
 // WebhookEvent is the event metadata envelope.
 type WebhookEvent struct {
-	EventID               string      `json:"event_id"`
-	EventType             string      `json:"event_type"`
-	Endpoint              string      `json:"endpoint"`
-	Timestamp             time.Time   `json:"timestamp"`
-	Version               string      `json:"version"`
-	TransactionType       string      `json:"transaction_type"`
-	BlockchainTxID        string      `json:"blockchain_transaction_id"`
-	Recipients            []Recipient `json:"recipients"`
+	EventID         string      `json:"event_id"`
+	EventType       string      `json:"event_type"`
+	Endpoint        string      `json:"endpoint"`
+	Timestamp       time.Time   `json:"timestamp"`
+	Version         string      `json:"version"`
+	TransactionType string      `json:"transaction_type"`
+	BlockchainTxID  string      `json:"blockchain_transaction_id"`
+	Recipients      []Recipient `json:"recipients"`
 }
 
 // Recipient is a webhook delivery target (broker-dealer or transfer agent).
@@ -50,29 +50,29 @@ type Transaction struct {
 
 // Security describes the asset being traded.
 type Security struct {
-	AssetID                string      `json:"asset_id"`
-	AssetName              string      `json:"asset_name"`
-	AssetType              string      `json:"asset_type"`
-	SecurityClass          string      `json:"security_class"`
-	ShareClass             string      `json:"share_class"`
-	CUSIP                  *string     `json:"cusip"`
-	ISIN                   *string     `json:"isin"`
-	IssuerID               string      `json:"issuer_id"`
-	IssuerName             string      `json:"issuer_name"`
-	IssuerType             string      `json:"issuer_type"`
-	NumberOfShares         int         `json:"number_of_shares"`
-	PricePerShare          float64     `json:"price_per_share"`
-	Currency               string      `json:"currency"`
-	GrossTradeAmount       float64     `json:"gross_trade_amount"`
-	AccruedInterest        float64     `json:"accrued_interest"`
-	Commissions            Commissions `json:"commissions"`
-	NetTradeAmount         float64     `json:"net_trade_amount"`
-	TradeExecutionDatetime time.Time   `json:"trade_execution_datetime"`
-	PriceDeterminationMethod string   `json:"price_determination_method"`
-	BidPrice               float64     `json:"bid_price"`
-	AskPrice               float64     `json:"ask_price"`
-	LastValuationPrice     float64     `json:"last_valuation_price"`
-	LastValuationDate      string      `json:"last_valuation_date"`
+	AssetID                  string      `json:"asset_id"`
+	AssetName                string      `json:"asset_name"`
+	AssetType                string      `json:"asset_type"`
+	SecurityClass            string      `json:"security_class"`
+	ShareClass               string      `json:"share_class"`
+	CUSIP                    *string     `json:"cusip"`
+	ISIN                     *string     `json:"isin"`
+	IssuerID                 string      `json:"issuer_id"`
+	IssuerName               string      `json:"issuer_name"`
+	IssuerType               string      `json:"issuer_type"`
+	NumberOfShares           int         `json:"number_of_shares"`
+	PricePerShare            float64     `json:"price_per_share"`
+	Currency                 string      `json:"currency"`
+	GrossTradeAmount         float64     `json:"gross_trade_amount"`
+	AccruedInterest          float64     `json:"accrued_interest"`
+	Commissions              Commissions `json:"commissions"`
+	NetTradeAmount           float64     `json:"net_trade_amount"`
+	TradeExecutionDatetime   time.Time   `json:"trade_execution_datetime"`
+	PriceDeterminationMethod string      `json:"price_determination_method"`
+	BidPrice                 float64     `json:"bid_price"`
+	AskPrice                 float64     `json:"ask_price"`
+	LastValuationPrice       float64     `json:"last_valuation_price"`
+	LastValuationDate        string      `json:"last_valuation_date"`
 }
 
 // Commissions holds fee information for both sides of the trade.
@@ -131,10 +131,10 @@ type ComplianceRef struct {
 
 // TransferAgent represents the transfer agent handling the security transfer.
 type TransferAgent struct {
-	FirmName              string                `json:"firm_name"`
-	SECRegistered         bool                  `json:"sec_registered"`
-	SECRegistrationNumber string                `json:"sec_registration_number"`
-	Acknowledgment        TAcknowledgment       `json:"acknowledgment"`
+	FirmName              string          `json:"firm_name"`
+	SECRegistered         bool            `json:"sec_registered"`
+	SECRegistrationNumber string          `json:"sec_registration_number"`
+	Acknowledgment        TAcknowledgment `json:"acknowledgment"`
 }
 
 // TAcknowledgment is the transfer agent's acknowledgment of the transfer instruction.

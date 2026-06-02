@@ -13,10 +13,10 @@ import (
 
 // allowedDocMIMETypes restricts document uploads to safe formats.
 var allowedDocMIMETypes = map[string]bool{
-	"application/pdf":  true,
-	"image/jpeg":       true,
-	"image/png":        true,
-	"image/tiff":       true,
+	"application/pdf": true,
+	"image/jpeg":      true,
+	"image/png":       true,
+	"image/tiff":      true,
 }
 
 // maxDocumentContentSize is the maximum decoded size for base64 document content (10 MB).

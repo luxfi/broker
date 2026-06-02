@@ -38,24 +38,66 @@ func New(cfg Config) *Provider {
 }
 
 func (p *Provider) Name() string { return "euronext" }
-func (p *Provider) CreateAccount(_ context.Context, _ *types.CreateAccountRequest) (*types.Account, error) { return nil, fmt.Errorf("euronext: CreateAccount not implemented") }
-func (p *Provider) GetAccount(_ context.Context, _ string) (*types.Account, error)          { return nil, fmt.Errorf("euronext: GetAccount not implemented") }
-func (p *Provider) ListAccounts(_ context.Context) ([]*types.Account, error)                { return nil, fmt.Errorf("euronext: ListAccounts not implemented") }
-func (p *Provider) GetPortfolio(_ context.Context, _ string) (*types.Portfolio, error)      { return nil, fmt.Errorf("euronext: GetPortfolio not implemented") }
-func (p *Provider) CreateOrder(_ context.Context, _ string, _ *types.CreateOrderRequest) (*types.Order, error) { return nil, fmt.Errorf("euronext: CreateOrder not implemented") }
-func (p *Provider) ListOrders(_ context.Context, _ string) ([]*types.Order, error)          { return nil, fmt.Errorf("euronext: ListOrders not implemented") }
-func (p *Provider) GetOrder(_ context.Context, _, _ string) (*types.Order, error)           { return nil, fmt.Errorf("euronext: GetOrder not implemented") }
-func (p *Provider) CancelOrder(_ context.Context, _, _ string) error                        { return fmt.Errorf("euronext: CancelOrder not implemented") }
-func (p *Provider) CreateTransfer(_ context.Context, _ string, _ *types.CreateTransferRequest) (*types.Transfer, error) { return nil, fmt.Errorf("euronext: CreateTransfer not implemented") }
-func (p *Provider) ListTransfers(_ context.Context, _ string) ([]*types.Transfer, error)    { return nil, fmt.Errorf("euronext: ListTransfers not implemented") }
-func (p *Provider) CreateBankRelationship(_ context.Context, _, _, _, _, _ string) (*types.BankRelationship, error) { return nil, fmt.Errorf("euronext: CreateBankRelationship not implemented") }
-func (p *Provider) ListBankRelationships(_ context.Context, _ string) ([]*types.BankRelationship, error) { return nil, fmt.Errorf("euronext: ListBankRelationships not implemented") }
-func (p *Provider) ListAssets(_ context.Context, _ string) ([]*types.Asset, error)          { return nil, fmt.Errorf("euronext: ListAssets not implemented") }
-func (p *Provider) GetAsset(_ context.Context, _ string) (*types.Asset, error)              { return nil, fmt.Errorf("euronext: GetAsset not implemented") }
-func (p *Provider) GetSnapshot(_ context.Context, _ string) (*types.MarketSnapshot, error)  { return nil, fmt.Errorf("euronext: GetSnapshot not implemented") }
-func (p *Provider) GetSnapshots(_ context.Context, _ []string) (map[string]*types.MarketSnapshot, error) { return nil, fmt.Errorf("euronext: GetSnapshots not implemented") }
-func (p *Provider) GetBars(_ context.Context, _, _, _, _ string, _ int) ([]*types.Bar, error) { return nil, fmt.Errorf("euronext: GetBars not implemented") }
-func (p *Provider) GetLatestTrades(_ context.Context, _ []string) (map[string]*types.Trade, error) { return nil, fmt.Errorf("euronext: GetLatestTrades not implemented") }
-func (p *Provider) GetLatestQuotes(_ context.Context, _ []string) (map[string]*types.Quote, error) { return nil, fmt.Errorf("euronext: GetLatestQuotes not implemented") }
-func (p *Provider) GetClock(_ context.Context) (*types.MarketClock, error)                  { return nil, fmt.Errorf("euronext: GetClock not implemented") }
-func (p *Provider) GetCalendar(_ context.Context, _, _ string) ([]*types.MarketCalendarDay, error) { return nil, fmt.Errorf("euronext: GetCalendar not implemented") }
+func (p *Provider) CreateAccount(_ context.Context, _ *types.CreateAccountRequest) (*types.Account, error) {
+	return nil, fmt.Errorf("euronext: CreateAccount not implemented")
+}
+func (p *Provider) GetAccount(_ context.Context, _ string) (*types.Account, error) {
+	return nil, fmt.Errorf("euronext: GetAccount not implemented")
+}
+func (p *Provider) ListAccounts(_ context.Context) ([]*types.Account, error) {
+	return nil, fmt.Errorf("euronext: ListAccounts not implemented")
+}
+func (p *Provider) GetPortfolio(_ context.Context, _ string) (*types.Portfolio, error) {
+	return nil, fmt.Errorf("euronext: GetPortfolio not implemented")
+}
+func (p *Provider) CreateOrder(_ context.Context, _ string, _ *types.CreateOrderRequest) (*types.Order, error) {
+	return nil, fmt.Errorf("euronext: CreateOrder not implemented")
+}
+func (p *Provider) ListOrders(_ context.Context, _ string) ([]*types.Order, error) {
+	return nil, fmt.Errorf("euronext: ListOrders not implemented")
+}
+func (p *Provider) GetOrder(_ context.Context, _, _ string) (*types.Order, error) {
+	return nil, fmt.Errorf("euronext: GetOrder not implemented")
+}
+func (p *Provider) CancelOrder(_ context.Context, _, _ string) error {
+	return fmt.Errorf("euronext: CancelOrder not implemented")
+}
+func (p *Provider) CreateTransfer(_ context.Context, _ string, _ *types.CreateTransferRequest) (*types.Transfer, error) {
+	return nil, fmt.Errorf("euronext: CreateTransfer not implemented")
+}
+func (p *Provider) ListTransfers(_ context.Context, _ string) ([]*types.Transfer, error) {
+	return nil, fmt.Errorf("euronext: ListTransfers not implemented")
+}
+func (p *Provider) CreateBankRelationship(_ context.Context, _, _, _, _, _ string) (*types.BankRelationship, error) {
+	return nil, fmt.Errorf("euronext: CreateBankRelationship not implemented")
+}
+func (p *Provider) ListBankRelationships(_ context.Context, _ string) ([]*types.BankRelationship, error) {
+	return nil, fmt.Errorf("euronext: ListBankRelationships not implemented")
+}
+func (p *Provider) ListAssets(_ context.Context, _ string) ([]*types.Asset, error) {
+	return nil, fmt.Errorf("euronext: ListAssets not implemented")
+}
+func (p *Provider) GetAsset(_ context.Context, _ string) (*types.Asset, error) {
+	return nil, fmt.Errorf("euronext: GetAsset not implemented")
+}
+func (p *Provider) GetSnapshot(_ context.Context, _ string) (*types.MarketSnapshot, error) {
+	return nil, fmt.Errorf("euronext: GetSnapshot not implemented")
+}
+func (p *Provider) GetSnapshots(_ context.Context, _ []string) (map[string]*types.MarketSnapshot, error) {
+	return nil, fmt.Errorf("euronext: GetSnapshots not implemented")
+}
+func (p *Provider) GetBars(_ context.Context, _, _, _, _ string, _ int) ([]*types.Bar, error) {
+	return nil, fmt.Errorf("euronext: GetBars not implemented")
+}
+func (p *Provider) GetLatestTrades(_ context.Context, _ []string) (map[string]*types.Trade, error) {
+	return nil, fmt.Errorf("euronext: GetLatestTrades not implemented")
+}
+func (p *Provider) GetLatestQuotes(_ context.Context, _ []string) (map[string]*types.Quote, error) {
+	return nil, fmt.Errorf("euronext: GetLatestQuotes not implemented")
+}
+func (p *Provider) GetClock(_ context.Context) (*types.MarketClock, error) {
+	return nil, fmt.Errorf("euronext: GetClock not implemented")
+}
+func (p *Provider) GetCalendar(_ context.Context, _, _ string) ([]*types.MarketCalendarDay, error) {
+	return nil, fmt.Errorf("euronext: GetCalendar not implemented")
+}

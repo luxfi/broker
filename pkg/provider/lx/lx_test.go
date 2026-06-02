@@ -68,20 +68,20 @@ func startTestDEX(t *testing.T) (string, func()) {
 		case OpGetOrder:
 			account, orderID := readAccountOrderReq(root)
 			respBytes = buildOrderResp(OpGetOrder, order{
-				id:         orderID,
-				clientID:   "cli-1",
-				account:    account,
-				symbol:     "BTC/USD",
-				side:       "buy",
-				orderType:  "limit",
-				tif:        "gtc",
-				status:     "filled",
-				qty:        0.1,
-				filledQty:  0.1,
-				limitPrice: 100.0,
+				id:           orderID,
+				clientID:     "cli-1",
+				account:      account,
+				symbol:       "BTC/USD",
+				side:         "buy",
+				orderType:    "limit",
+				tif:          "gtc",
+				status:       "filled",
+				qty:          0.1,
+				filledQty:    0.1,
+				limitPrice:   100.0,
 				avgFillPrice: 100.25,
-				createdNs:  1_700_000_000_000_000_000,
-				filledNs:   1_700_000_000_500_000_000,
+				createdNs:    1_700_000_000_000_000_000,
+				filledNs:     1_700_000_000_500_000_000,
 			})
 
 		case OpCreateOrder:

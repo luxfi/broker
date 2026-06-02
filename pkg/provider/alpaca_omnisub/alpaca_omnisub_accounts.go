@@ -96,7 +96,7 @@ func (p *Provider) CreateAccount(ctx context.Context, req *types.CreateAccountRe
 			"country":        req.Contact.Country,
 		},
 		"identity": map[string]interface{}{
-			"given_name":                req.Identity.GivenName,
+			"given_name":               req.Identity.GivenName,
 			"family_name":              req.Identity.FamilyName,
 			"date_of_birth":            req.Identity.DateOfBirth,
 			"tax_id":                   req.Identity.TaxID,

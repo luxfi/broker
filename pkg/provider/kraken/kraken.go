@@ -165,8 +165,10 @@ func (p *Provider) CreateOrder(ctx context.Context, _ string, req *types.CreateO
 		return nil, err
 	}
 	var raw struct {
-		Descr struct{ Order string `json:"order"` } `json:"descr"`
-		TxID  []string                               `json:"txid"`
+		Descr struct {
+			Order string `json:"order"`
+		} `json:"descr"`
+		TxID []string `json:"txid"`
 	}
 	json.Unmarshal(data, &raw)
 	orderID := ""
@@ -192,9 +194,9 @@ func (p *Provider) ListOrders(ctx context.Context, _ string) ([]*types.Order, er
 				Type  string `json:"type"`
 				Order string `json:"ordertype"`
 			} `json:"descr"`
-			Vol       string `json:"vol"`
-			VolExec   string `json:"vol_exec"`
-			Status    string `json:"status"`
+			Vol     string `json:"vol"`
+			VolExec string `json:"vol_exec"`
+			Status  string `json:"status"`
 		} `json:"open"`
 	}
 	json.Unmarshal(data, &raw)
@@ -218,8 +220,8 @@ func (p *Provider) GetOrder(ctx context.Context, _ string, orderID string) (*typ
 	}
 	var raw map[string]struct {
 		Descr struct {
-			Pair  string `json:"pair"`
-			Type  string `json:"type"`
+			Pair string `json:"pair"`
+			Type string `json:"type"`
 		} `json:"descr"`
 		Vol     string `json:"vol"`
 		VolExec string `json:"vol_exec"`
@@ -266,7 +268,7 @@ func (p *Provider) ListAssets(ctx context.Context, _ string) ([]*types.Asset, er
 		return defaultAssets(), nil
 	}
 	var resp struct {
-		Error  []string                          `json:"error"`
+		Error  []string `json:"error"`
 		Result map[string]struct {
 			Base  string `json:"base"`
 			Quote string `json:"quote"`
@@ -299,7 +301,7 @@ func (p *Provider) GetSnapshot(ctx context.Context, symbol string) (*types.Marke
 		return nil, err
 	}
 	var resp struct {
-		Error  []string                   `json:"error"`
+		Error  []string `json:"error"`
 		Result map[string]struct {
 			A []string `json:"a"` // ask [price, whole_lot_volume, lot_volume]
 			B []string `json:"b"` // bid
@@ -323,7 +325,7 @@ func (p *Provider) GetSnapshot(ctx context.Context, symbol string) (*types.Marke
 			Symbol: symbol,
 			LatestQuote: &types.Quote{
 				Timestamp: time.Now().UTC().Format(time.RFC3339),
-				BidPrice: bid, AskPrice: ask,
+				BidPrice:  bid, AskPrice: ask,
 			},
 			LatestTrade: &types.Trade{Timestamp: time.Now().UTC().Format(time.RFC3339), Price: last},
 			DailyBar:    &types.Bar{Open: op, High: hi, Low: lo, Close: last, Volume: vol},

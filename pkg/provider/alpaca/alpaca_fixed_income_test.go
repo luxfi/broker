@@ -106,15 +106,15 @@ func TestCreateFixedIncomeOrder_Buy(t *testing.T) {
 			}
 
 			json.NewEncoder(w).Encode(map[string]interface{}{
-				"id":             "order-fi-1",
-				"symbol":         "037833100",
-				"side":           "buy",
-				"type":           "market",
-				"time_in_force":  "day",
-				"status":         "accepted",
-				"qty":            "5000",
-				"asset_class":    "us_equity",
-				"created_at":     "2026-04-05T10:00:00Z",
+				"id":            "order-fi-1",
+				"symbol":        "037833100",
+				"side":          "buy",
+				"type":          "market",
+				"time_in_force": "day",
+				"status":        "accepted",
+				"qty":           "5000",
+				"asset_class":   "us_equity",
+				"created_at":    "2026-04-05T10:00:00Z",
 			})
 		},
 	})

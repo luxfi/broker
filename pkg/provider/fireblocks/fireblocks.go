@@ -75,7 +75,10 @@ func (p *Provider) CreateAccount(ctx context.Context, req *types.CreateAccountRe
 	if err != nil {
 		return nil, err
 	}
-	var resp struct{ ID string `json:"id"`; Name string `json:"name"` }
+	var resp struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
 	json.Unmarshal(data, &resp)
 	return &types.Account{ID: resp.ID, Provider: "fireblocks", ProviderID: resp.ID, Status: "active", CreatedAt: time.Now(), UpdatedAt: time.Now()}, nil
 }
@@ -85,7 +88,10 @@ func (p *Provider) GetAccount(ctx context.Context, id string) (*types.Account, e
 	if err != nil {
 		return nil, err
 	}
-	var resp struct{ ID string `json:"id"`; Name string `json:"name"` }
+	var resp struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
 	json.Unmarshal(data, &resp)
 	return &types.Account{ID: resp.ID, Provider: "fireblocks", ProviderID: resp.ID, Status: "active"}, nil
 }
@@ -95,7 +101,10 @@ func (p *Provider) ListAccounts(ctx context.Context) ([]*types.Account, error) {
 	if err != nil {
 		return nil, err
 	}
-	var items []struct{ ID string `json:"id"`; Name string `json:"name"` }
+	var items []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
 	json.Unmarshal(data, &items)
 	accounts := make([]*types.Account, 0, len(items))
 	for _, item := range items {
@@ -110,7 +119,11 @@ func (p *Provider) GetPortfolio(ctx context.Context, id string) (*types.Portfoli
 		return nil, err
 	}
 	var resp struct {
-		Assets []struct{ ID string `json:"id"`; Balance string `json:"balance"`; Available string `json:"available"` } `json:"assets"`
+		Assets []struct {
+			ID        string `json:"id"`
+			Balance   string `json:"balance"`
+			Available string `json:"available"`
+		} `json:"assets"`
 	}
 	json.Unmarshal(data, &resp)
 	positions := make([]types.Position, 0, len(resp.Assets))
@@ -123,14 +136,17 @@ func (p *Provider) GetPortfolio(ctx context.Context, id string) (*types.Portfoli
 func (p *Provider) CreateOrder(ctx context.Context, accountID string, req *types.CreateOrderRequest) (*types.Order, error) {
 	body := map[string]interface{}{
 		"assetId": req.Symbol, "amount": req.Qty,
-		"source": map[string]string{"type": "VAULT_ACCOUNT", "id": accountID},
+		"source":    map[string]string{"type": "VAULT_ACCOUNT", "id": accountID},
 		"operation": "TRANSFER",
 	}
 	data, err := p.doRequest(ctx, "POST", "/transactions", body)
 	if err != nil {
 		return nil, err
 	}
-	var resp struct{ ID string `json:"id"`; Status string `json:"status"` }
+	var resp struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	}
 	json.Unmarshal(data, &resp)
 	return &types.Order{ID: resp.ID, Provider: "fireblocks", ProviderID: resp.ID, AccountID: accountID, Symbol: req.Symbol, Qty: req.Qty, Side: req.Side, Type: req.Type, Status: resp.Status, CreatedAt: time.Now()}, nil
 }
@@ -140,7 +156,11 @@ func (p *Provider) ListOrders(ctx context.Context, accountID string) ([]*types.O
 	if err != nil {
 		return nil, err
 	}
-	var items []struct{ ID string `json:"id"`; Status string `json:"status"`; AssetID string `json:"assetId"` }
+	var items []struct {
+		ID      string `json:"id"`
+		Status  string `json:"status"`
+		AssetID string `json:"assetId"`
+	}
 	json.Unmarshal(data, &items)
 	orders := make([]*types.Order, 0, len(items))
 	for _, item := range items {
@@ -154,7 +174,10 @@ func (p *Provider) GetOrder(ctx context.Context, accountID, orderID string) (*ty
 	if err != nil {
 		return nil, err
 	}
-	var resp struct{ ID string `json:"id"`; Status string `json:"status"` }
+	var resp struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	}
 	json.Unmarshal(data, &resp)
 	return &types.Order{ID: resp.ID, Provider: "fireblocks", ProviderID: resp.ID, Status: resp.Status}, nil
 }
@@ -182,7 +205,11 @@ func (p *Provider) ListAssets(ctx context.Context, class string) ([]*types.Asset
 	if err != nil {
 		return nil, err
 	}
-	var items []struct{ ID string `json:"id"`; Name string `json:"name"`; Type string `json:"type"` }
+	var items []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+		Type string `json:"type"`
+	}
 	json.Unmarshal(data, &items)
 	assets := make([]*types.Asset, 0, len(items))
 	for _, item := range items {
@@ -195,10 +222,24 @@ func (p *Provider) GetAsset(ctx context.Context, symbolOrID string) (*types.Asse
 	return &types.Asset{ID: symbolOrID, Provider: "fireblocks", Symbol: symbolOrID, Class: "crypto", Status: "active", Tradable: true}, nil
 }
 
-func (p *Provider) GetSnapshot(_ context.Context, _ string) (*types.MarketSnapshot, error) { return nil, errNotSupported }
-func (p *Provider) GetSnapshots(_ context.Context, _ []string) (map[string]*types.MarketSnapshot, error) { return nil, errNotSupported }
-func (p *Provider) GetBars(_ context.Context, _, _, _, _ string, _ int) ([]*types.Bar, error) { return nil, errNotSupported }
-func (p *Provider) GetLatestTrades(_ context.Context, _ []string) (map[string]*types.Trade, error) { return nil, errNotSupported }
-func (p *Provider) GetLatestQuotes(_ context.Context, _ []string) (map[string]*types.Quote, error) { return nil, errNotSupported }
-func (p *Provider) GetClock(_ context.Context) (*types.MarketClock, error) { return nil, errNotSupported }
-func (p *Provider) GetCalendar(_ context.Context, _, _ string) ([]*types.MarketCalendarDay, error) { return nil, errNotSupported }
+func (p *Provider) GetSnapshot(_ context.Context, _ string) (*types.MarketSnapshot, error) {
+	return nil, errNotSupported
+}
+func (p *Provider) GetSnapshots(_ context.Context, _ []string) (map[string]*types.MarketSnapshot, error) {
+	return nil, errNotSupported
+}
+func (p *Provider) GetBars(_ context.Context, _, _, _, _ string, _ int) ([]*types.Bar, error) {
+	return nil, errNotSupported
+}
+func (p *Provider) GetLatestTrades(_ context.Context, _ []string) (map[string]*types.Trade, error) {
+	return nil, errNotSupported
+}
+func (p *Provider) GetLatestQuotes(_ context.Context, _ []string) (map[string]*types.Quote, error) {
+	return nil, errNotSupported
+}
+func (p *Provider) GetClock(_ context.Context) (*types.MarketClock, error) {
+	return nil, errNotSupported
+}
+func (p *Provider) GetCalendar(_ context.Context, _, _ string) ([]*types.MarketCalendarDay, error) {
+	return nil, errNotSupported
+}

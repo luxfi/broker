@@ -247,10 +247,10 @@ func TestValidateOCCSymbolFormat(t *testing.T) {
 		{"", false},
 		{"AAPL", false},
 		{"not-valid", false},
-		{"AAPL260418X00150000", false}, // X is not C or P
-		{"aapl260418C00150000", false}, // lowercase
+		{"AAPL260418X00150000", false},    // X is not C or P
+		{"aapl260418C00150000", false},    // lowercase
 		{"TOOLONG260418C00150000", false}, // > 6 char root (7 chars)
-		{"AAPL26041800150000", false},  // missing C/P
+		{"AAPL26041800150000", false},     // missing C/P
 		{"<script>alert(1)</script>", false},
 	}
 	for _, tt := range tests {
@@ -270,9 +270,9 @@ func TestValidateUnderlyingSymbol(t *testing.T) {
 		{"SPY", true},
 		{"X", true},
 		{"TSLA", true},
-		{"aapl", true},  // case-insensitive (uppercased internally)
+		{"aapl", true}, // case-insensitive (uppercased internally)
 		{"", false},
-		{"TOOLONG1", false},  // > 6 chars
+		{"TOOLONG1", false}, // > 6 chars
 		{"123", false},
 		{"AAP-L", false},
 		{"AA PL", false},

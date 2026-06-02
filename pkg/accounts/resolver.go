@@ -26,9 +26,9 @@ type mappingKey struct {
 
 // Resolver is a thread-safe store of user-to-provider account mappings.
 type Resolver struct {
-	mu       sync.RWMutex
-	byKey    map[mappingKey]AccountMapping   // user+provider -> mapping
-	byUser   map[string][]AccountMapping     // user -> all mappings
+	mu     sync.RWMutex
+	byKey  map[mappingKey]AccountMapping // user+provider -> mapping
+	byUser map[string][]AccountMapping   // user -> all mappings
 }
 
 // NewResolver creates an empty Resolver.

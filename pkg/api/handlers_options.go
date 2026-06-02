@@ -40,8 +40,8 @@ const maxRequestBodyBytes = 64 * 1024
 
 // validOptionActions is the allowlist for option order actions.
 var validOptionActions = map[string]bool{
-	"buy_to_open":  true,
-	"buy_to_close": true,
+	"buy_to_open":   true,
+	"buy_to_close":  true,
 	"sell_to_open":  true,
 	"sell_to_close": true,
 }

@@ -224,10 +224,10 @@ func TestDispatcherRetryOnFailure(t *testing.T) {
 
 	d := NewDispatcher()
 	payload := &TradeWebhookPayload{
-		WebhookEvent: WebhookEvent{EventID: "evt_retry"},
-		Transaction:  Transaction{TransactionID: "txn_retry"},
-		Buyer:        Party{InvestorID: "inv_retry_buyer"},
-		Seller:       Party{InvestorID: "inv_retry_seller"},
+		WebhookEvent:  WebhookEvent{EventID: "evt_retry"},
+		Transaction:   Transaction{TransactionID: "txn_retry"},
+		Buyer:         Party{InvestorID: "inv_retry_buyer"},
+		Seller:        Party{InvestorID: "inv_retry_seller"},
 		TransferAgent: TransferAgent{FirmName: "Retry TA"},
 	}
 

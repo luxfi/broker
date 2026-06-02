@@ -232,19 +232,19 @@ func (p *Provider) GetOrder(ctx context.Context, _ string, orderID string) (*typ
 	}
 	var raw struct {
 		Order struct {
-			OrderID       string `json:"order_id"`
-			ProductID     string `json:"product_id"`
-			Side          string `json:"side"`
-			Status        string `json:"status"`
-			FilledSize    string `json:"filled_size"`
-			AveragePrice  string `json:"average_filled_price"`
+			OrderID      string `json:"order_id"`
+			ProductID    string `json:"product_id"`
+			Side         string `json:"side"`
+			Status       string `json:"status"`
+			FilledSize   string `json:"filled_size"`
+			AveragePrice string `json:"average_filled_price"`
 		} `json:"order"`
 	}
 	json.Unmarshal(data, &raw)
 	return &types.Order{
 		Provider: "coinbase", ProviderID: raw.Order.OrderID,
 		Symbol: raw.Order.ProductID, Side: strings.ToLower(raw.Order.Side),
-		Status: strings.ToLower(raw.Order.Status),
+		Status:    strings.ToLower(raw.Order.Status),
 		FilledQty: raw.Order.FilledSize, FilledAvgPrice: raw.Order.AveragePrice,
 	}, nil
 }
@@ -295,7 +295,7 @@ func (p *Provider) ListAssets(ctx context.Context, _ string) ([]*types.Asset, er
 		assets = append(assets, &types.Asset{
 			ID: prod.ProductID, Provider: "coinbase",
 			Symbol: prod.BaseCurrency + "/" + prod.QuoteCurrency,
-			Name: prod.ProductID, Class: "crypto",
+			Name:   prod.ProductID, Class: "crypto",
 			Status: "active", Tradable: true, Fractionable: true,
 		})
 	}

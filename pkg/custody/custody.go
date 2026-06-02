@@ -15,18 +15,18 @@ import (
 type CustodianType string
 
 const (
-	CustodianPrime   CustodianType = "prime"   // prime broker (e.g., Alpaca, IBKR)
-	CustodianCrypto  CustodianType = "crypto"  // crypto custodian (e.g., Fireblocks, BitGo)
-	CustodianSelf    CustodianType = "self"    // self-custody wallet
-	CustodianBank    CustodianType = "bank"    // fiat bank custody
+	CustodianPrime  CustodianType = "prime"  // prime broker (e.g., Alpaca, IBKR)
+	CustodianCrypto CustodianType = "crypto" // crypto custodian (e.g., Fireblocks, BitGo)
+	CustodianSelf   CustodianType = "self"   // self-custody wallet
+	CustodianBank   CustodianType = "bank"   // fiat bank custody
 )
 
 // Custodian represents a registered custody provider.
 type Custodian struct {
-	ID       string        `json:"id"`
-	Name     string        `json:"name"`      // e.g., "fireblocks", "bitgo", "alpaca"
-	Type     CustodianType `json:"type"`
-	Status   string        `json:"status"`    // active, suspended, decommissioned
+	ID       string            `json:"id"`
+	Name     string            `json:"name"` // e.g., "fireblocks", "bitgo", "alpaca"
+	Type     CustodianType     `json:"type"`
+	Status   string            `json:"status"` // active, suspended, decommissioned
 	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
@@ -35,7 +35,7 @@ type Holding struct {
 	ID          string    `json:"id"`
 	AccountID   string    `json:"account_id"`
 	CustodianID string    `json:"custodian_id"`
-	Asset       string    `json:"asset"`      // symbol or currency
+	Asset       string    `json:"asset"` // symbol or currency
 	Quantity    float64   `json:"quantity"`
 	CostBasis   float64   `json:"cost_basis"` // USD cost basis for tax reporting
 	UpdatedAt   time.Time `json:"updated_at"`
@@ -67,11 +67,11 @@ type Transfer struct {
 
 // ReconciliationResult is the outcome of comparing our records against a custodian.
 type ReconciliationResult struct {
-	CustodianID string                 `json:"custodian_id"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Matched     int                    `json:"matched"`
-	Mismatched  int                    `json:"mismatched"`
-	Breaks      []ReconciliationBreak  `json:"breaks,omitempty"`
+	CustodianID string                `json:"custodian_id"`
+	Timestamp   time.Time             `json:"timestamp"`
+	Matched     int                   `json:"matched"`
+	Mismatched  int                   `json:"mismatched"`
+	Breaks      []ReconciliationBreak `json:"breaks,omitempty"`
 }
 
 // ReconciliationBreak is a discrepancy between our records and the custodian.
@@ -86,14 +86,15 @@ type ReconciliationBreak struct {
 // BalanceFetcher retrieves current balances from a custody provider.
 // Implementations wrap provider-specific APIs (Fireblocks, BitGo, etc.).
 type BalanceFetcher func(ctx context.Context, custodianID string) (map[string]map[string]float64, error)
+
 // Returns: accountID -> asset -> quantity
 
 // Service manages custody state, inter-custodian transfers, and reconciliation.
 type Service struct {
 	mu         sync.RWMutex
-	custodians map[string]*Custodian            // custodianID -> custodian
-	holdings   map[holdingKey]*Holding           // (account, custodian, asset) -> holding
-	transfers  map[string]*Transfer              // transferID -> transfer
+	custodians map[string]*Custodian   // custodianID -> custodian
+	holdings   map[holdingKey]*Holding // (account, custodian, asset) -> holding
+	transfers  map[string]*Transfer    // transferID -> transfer
 	nextID     int
 }
 

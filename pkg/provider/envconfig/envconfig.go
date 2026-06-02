@@ -7,9 +7,9 @@ import (
 	"os"
 
 	"github.com/luxfi/broker/pkg/provider"
-	"github.com/luxfi/broker/pkg/provider/apex"
 	"github.com/luxfi/broker/pkg/provider/alpaca"
 	"github.com/luxfi/broker/pkg/provider/alpaca_omnisub"
+	"github.com/luxfi/broker/pkg/provider/apex"
 	"github.com/luxfi/broker/pkg/provider/binance"
 	"github.com/luxfi/broker/pkg/provider/bitgo"
 	"github.com/luxfi/broker/pkg/provider/circle"

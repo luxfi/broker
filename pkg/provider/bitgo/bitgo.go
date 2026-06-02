@@ -155,9 +155,9 @@ func (p *Provider) GetPortfolio(ctx context.Context, providerAccountID string) (
 		PortfolioValue: fmt.Sprintf("%d", wallet.Balance),
 		Positions: []types.Position{
 			{
-				Symbol:      wallet.Coin,
-				Qty:         fmt.Sprintf("%d", wallet.Balance),
-				AssetClass:  "crypto",
+				Symbol:     wallet.Coin,
+				Qty:        fmt.Sprintf("%d", wallet.Balance),
+				AssetClass: "crypto",
 			},
 		},
 	}, nil

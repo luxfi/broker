@@ -24,24 +24,24 @@ type Log struct {
 
 // Entry is a single audit log record.
 type Entry struct {
-	ID          string                 `json:"id"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Action      Action                 `json:"action"`
-	Provider    string                 `json:"provider"`
-	AccountID   string                 `json:"account_id"`
-	Symbol      string                 `json:"symbol,omitempty"`
-	Side        string                 `json:"side,omitempty"`
-	Qty         string                 `json:"qty,omitempty"`
-	Price       string                 `json:"price,omitempty"`
-	OrderID     string                 `json:"order_id,omitempty"`
-	Algorithm   string                 `json:"algorithm,omitempty"`
-	Status      string                 `json:"status"`      // success, failure, pending
-	Latency     time.Duration          `json:"latency_ns"`  // execution latency
-	Error       string                 `json:"error,omitempty"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
-	ClientIP    string                 `json:"client_ip,omitempty"`
-	UserAgent   string                 `json:"user_agent,omitempty"`
-	RequestID   string                 `json:"request_id,omitempty"`
+	ID        string                 `json:"id"`
+	Timestamp time.Time              `json:"timestamp"`
+	Action    Action                 `json:"action"`
+	Provider  string                 `json:"provider"`
+	AccountID string                 `json:"account_id"`
+	Symbol    string                 `json:"symbol,omitempty"`
+	Side      string                 `json:"side,omitempty"`
+	Qty       string                 `json:"qty,omitempty"`
+	Price     string                 `json:"price,omitempty"`
+	OrderID   string                 `json:"order_id,omitempty"`
+	Algorithm string                 `json:"algorithm,omitempty"`
+	Status    string                 `json:"status"`     // success, failure, pending
+	Latency   time.Duration          `json:"latency_ns"` // execution latency
+	Error     string                 `json:"error,omitempty"`
+	Metadata  map[string]interface{} `json:"metadata,omitempty"`
+	ClientIP  string                 `json:"client_ip,omitempty"`
+	UserAgent string                 `json:"user_agent,omitempty"`
+	RequestID string                 `json:"request_id,omitempty"`
 }
 
 // Action categorizes audit events.

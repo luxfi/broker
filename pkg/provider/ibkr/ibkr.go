@@ -21,10 +21,10 @@ const (
 
 // Config for Interactive Brokers provider.
 type Config struct {
-	GatewayURL   string `json:"gateway_url"`    // Client Portal Gateway URL
-	AccountID    string `json:"account_id"`      // Primary account
-	AccessToken  string `json:"access_token"`    // OAuth token (Web API)
-	ConsumerKey  string `json:"consumer_key"`    // OAuth consumer key
+	GatewayURL  string `json:"gateway_url"`  // Client Portal Gateway URL
+	AccountID   string `json:"account_id"`   // Primary account
+	AccessToken string `json:"access_token"` // OAuth token (Web API)
+	ConsumerKey string `json:"consumer_key"` // OAuth consumer key
 }
 
 // Provider implements the broker Provider interface for IBKR.
@@ -229,7 +229,7 @@ func (p *Provider) CreateOrder(ctx context.Context, providerAccountID string, re
 	}
 
 	var result []struct {
-		OrderID   string `json:"order_id"`
+		OrderID     string `json:"order_id"`
 		OrderStatus string `json:"order_status"`
 	}
 	json.Unmarshal(data, &result)
@@ -410,9 +410,9 @@ func (p *Provider) resolveConid(ctx context.Context, symbol string) (int, error)
 		return 0, err
 	}
 	var results []struct {
-		Conid    int      `json:"conid"`
-		Symbol   string   `json:"symbol"`
-		Exchange string   `json:"description"` // exchange info in description
+		Conid    int    `json:"conid"`
+		Symbol   string `json:"symbol"`
+		Exchange string `json:"description"` // exchange info in description
 		Sections []struct {
 			SecType  string `json:"secType"`
 			Exchange string `json:"exchange"`

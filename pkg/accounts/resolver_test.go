@@ -353,8 +353,8 @@ func TestAutoDiscoverNoMatchingAccounts(t *testing.T) {
 
 func TestAutoDiscoverProviderError(t *testing.T) {
 	mp := &mockProviderForResolver{
-		name:     "broken",
-		listErr:  fmt.Errorf("connection refused"),
+		name:    "broken",
+		listErr: fmt.Errorf("connection refused"),
 	}
 
 	registry := provider.NewRegistry()

@@ -32,7 +32,9 @@ type Provider struct {
 }
 
 func New(cfg Config) *Provider {
-	if cfg.BaseURL == "" { cfg.BaseURL = ProdURL }
+	if cfg.BaseURL == "" {
+		cfg.BaseURL = ProdURL
+	}
 	return &Provider{cfg: cfg, client: &http.Client{Timeout: 30 * time.Second}}
 }
 
@@ -41,17 +43,27 @@ func (p *Provider) Name() string { return "currencycloud" }
 var errNotSupported = fmt.Errorf("not supported by currencycloud")
 
 func (p *Provider) authenticate(ctx context.Context) error {
-	if p.authToken != "" && time.Now().Before(p.tokenExp) { return nil }
+	if p.authToken != "" && time.Now().Before(p.tokenExp) {
+		return nil
+	}
 	form := url.Values{"login_id": {p.cfg.LoginID}, "api_key": {p.cfg.APIKey}}
 	req, err := http.NewRequestWithContext(ctx, "POST", p.cfg.BaseURL+"/v2/authenticate/api", strings.NewReader(form.Encode()))
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := p.client.Do(req)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 400 { return fmt.Errorf("currencycloud auth error %d: %s", resp.StatusCode, string(data)) }
-	var result struct{ AuthToken string `json:"auth_token"` }
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("currencycloud auth error %d: %s", resp.StatusCode, string(data))
+	}
+	var result struct {
+		AuthToken string `json:"auth_token"`
+	}
 	json.Unmarshal(data, &result)
 	p.authToken = result.AuthToken
 	p.tokenExp = time.Now().Add(25 * time.Minute) // tokens last 30min
@@ -59,7 +71,9 @@ func (p *Provider) authenticate(ctx context.Context) error {
 }
 
 func (p *Provider) doRequest(ctx context.Context, method, path string, body interface{}) ([]byte, error) {
-	if err := p.authenticate(ctx); err != nil { return nil, err }
+	if err := p.authenticate(ctx); err != nil {
+		return nil, err
+	}
 	var reqBody io.Reader
 	if body != nil {
 		if form, ok := body.(url.Values); ok {
@@ -70,32 +84,54 @@ func (p *Provider) doRequest(ctx context.Context, method, path string, body inte
 		}
 	}
 	req, err := http.NewRequestWithContext(ctx, method, p.cfg.BaseURL+path, reqBody)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	req.Header.Set("X-Auth-Token", p.authToken)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := p.client.Do(req)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 400 { return nil, fmt.Errorf("currencycloud error %d: %s", resp.StatusCode, string(data)) }
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("currencycloud error %d: %s", resp.StatusCode, string(data))
+	}
 	return data, nil
 }
 
 // CurrencyCloud uses sub-accounts, not brokerage accounts
-func (p *Provider) CreateAccount(_ context.Context, _ *types.CreateAccountRequest) (*types.Account, error) { return nil, errNotSupported }
+func (p *Provider) CreateAccount(_ context.Context, _ *types.CreateAccountRequest) (*types.Account, error) {
+	return nil, errNotSupported
+}
 
 func (p *Provider) GetAccount(ctx context.Context, id string) (*types.Account, error) {
 	data, err := p.doRequest(ctx, "GET", "/v2/accounts/"+id, nil)
-	if err != nil { return nil, err }
-	var resp struct{ ID string `json:"id"`; AccountName string `json:"account_name"`; Status string `json:"status"` }
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		ID          string `json:"id"`
+		AccountName string `json:"account_name"`
+		Status      string `json:"status"`
+	}
 	json.Unmarshal(data, &resp)
 	return &types.Account{ID: resp.ID, Provider: "currencycloud", ProviderID: resp.ID, AccountNumber: resp.AccountName, Status: resp.Status}, nil
 }
 
 func (p *Provider) ListAccounts(ctx context.Context) ([]*types.Account, error) {
 	data, err := p.doRequest(ctx, "GET", "/v2/accounts/find", nil)
-	if err != nil { return nil, err }
-	var resp struct{ Accounts []struct{ ID string `json:"id"`; AccountName string `json:"account_name"`; Status string `json:"status"` } `json:"accounts"` }
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Accounts []struct {
+			ID          string `json:"id"`
+			AccountName string `json:"account_name"`
+			Status      string `json:"status"`
+		} `json:"accounts"`
+	}
 	json.Unmarshal(data, &resp)
 	accts := make([]*types.Account, 0, len(resp.Accounts))
 	for _, a := range resp.Accounts {
@@ -106,8 +142,15 @@ func (p *Provider) ListAccounts(ctx context.Context) ([]*types.Account, error) {
 
 func (p *Provider) GetPortfolio(ctx context.Context, id string) (*types.Portfolio, error) {
 	data, err := p.doRequest(ctx, "GET", "/v2/balances/find", nil)
-	if err != nil { return nil, err }
-	var resp struct{ Balances []struct{ Currency string `json:"currency"`; Amount string `json:"amount"` } `json:"balances"` }
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Balances []struct {
+			Currency string `json:"currency"`
+			Amount   string `json:"amount"`
+		} `json:"balances"`
+	}
 	json.Unmarshal(data, &resp)
 	positions := make([]types.Position, 0, len(resp.Balances))
 	for _, b := range resp.Balances {
@@ -119,27 +162,44 @@ func (p *Provider) GetPortfolio(ctx context.Context, id string) (*types.Portfoli
 // FX "orders" are conversions in CurrencyCloud
 func (p *Provider) CreateOrder(ctx context.Context, accountID string, req *types.CreateOrderRequest) (*types.Order, error) {
 	// Parse symbol as currency pair (e.g. GBPUSD -> buy GBP, sell USD)
-	if len(req.Symbol) != 6 { return nil, fmt.Errorf("symbol must be 6-char FX pair (e.g. GBPUSD)") }
+	if len(req.Symbol) != 6 {
+		return nil, fmt.Errorf("symbol must be 6-char FX pair (e.g. GBPUSD)")
+	}
 	buyCcy := req.Symbol[:3]
 	sellCcy := req.Symbol[3:]
 	form := url.Values{
-		"buy_currency":  {buyCcy},
-		"sell_currency": {sellCcy},
-		"amount":        {req.Qty},
-		"fixed_side":    {"buy"},
+		"buy_currency":   {buyCcy},
+		"sell_currency":  {sellCcy},
+		"amount":         {req.Qty},
+		"fixed_side":     {"buy"},
 		"term_agreement": {"true"},
 	}
 	data, err := p.doRequest(ctx, "POST", "/v2/conversions/create", form)
-	if err != nil { return nil, err }
-	var resp struct{ ID string `json:"id"`; Status string `json:"status"`; ClientRate string `json:"client_rate"` }
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		ID         string `json:"id"`
+		Status     string `json:"status"`
+		ClientRate string `json:"client_rate"`
+	}
 	json.Unmarshal(data, &resp)
 	return &types.Order{ID: resp.ID, Provider: "currencycloud", ProviderID: resp.ID, AccountID: accountID, Symbol: req.Symbol, Qty: req.Qty, Side: req.Side, Type: "fx_spot", Status: resp.Status, FilledAvgPrice: resp.ClientRate, CreatedAt: time.Now()}, nil
 }
 
 func (p *Provider) ListOrders(ctx context.Context, accountID string) ([]*types.Order, error) {
 	data, err := p.doRequest(ctx, "GET", "/v2/conversions/find", nil)
-	if err != nil { return nil, err }
-	var resp struct{ Conversions []struct{ ID string `json:"id"`; BuyCurrency string `json:"buy_currency"`; SellCurrency string `json:"sell_currency"`; Status string `json:"status"` } `json:"conversions"` }
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Conversions []struct {
+			ID           string `json:"id"`
+			BuyCurrency  string `json:"buy_currency"`
+			SellCurrency string `json:"sell_currency"`
+			Status       string `json:"status"`
+		} `json:"conversions"`
+	}
 	json.Unmarshal(data, &resp)
 	orders := make([]*types.Order, 0, len(resp.Conversions))
 	for _, c := range resp.Conversions {
@@ -150,8 +210,14 @@ func (p *Provider) ListOrders(ctx context.Context, accountID string) ([]*types.O
 
 func (p *Provider) GetOrder(ctx context.Context, accountID, orderID string) (*types.Order, error) {
 	data, err := p.doRequest(ctx, "GET", "/v2/conversions/"+orderID, nil)
-	if err != nil { return nil, err }
-	var resp struct{ ID string `json:"id"`; Status string `json:"status"`; ClientRate string `json:"client_rate"` }
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		ID         string `json:"id"`
+		Status     string `json:"status"`
+		ClientRate string `json:"client_rate"`
+	}
 	json.Unmarshal(data, &resp)
 	return &types.Order{ID: resp.ID, Provider: "currencycloud", ProviderID: resp.ID, Status: resp.Status, FilledAvgPrice: resp.ClientRate}, nil
 }
@@ -161,10 +227,18 @@ func (p *Provider) CancelOrder(ctx context.Context, accountID, orderID string) e
 	return err
 }
 
-func (p *Provider) CreateTransfer(_ context.Context, _ string, _ *types.CreateTransferRequest) (*types.Transfer, error) { return nil, errNotSupported }
-func (p *Provider) ListTransfers(_ context.Context, _ string) ([]*types.Transfer, error) { return nil, errNotSupported }
-func (p *Provider) CreateBankRelationship(_ context.Context, _, _, _, _, _ string) (*types.BankRelationship, error) { return nil, errNotSupported }
-func (p *Provider) ListBankRelationships(_ context.Context, _ string) ([]*types.BankRelationship, error) { return nil, errNotSupported }
+func (p *Provider) CreateTransfer(_ context.Context, _ string, _ *types.CreateTransferRequest) (*types.Transfer, error) {
+	return nil, errNotSupported
+}
+func (p *Provider) ListTransfers(_ context.Context, _ string) ([]*types.Transfer, error) {
+	return nil, errNotSupported
+}
+func (p *Provider) CreateBankRelationship(_ context.Context, _, _, _, _, _ string) (*types.BankRelationship, error) {
+	return nil, errNotSupported
+}
+func (p *Provider) ListBankRelationships(_ context.Context, _ string) ([]*types.BankRelationship, error) {
+	return nil, errNotSupported
+}
 
 // FX pairs as assets
 func (p *Provider) ListAssets(_ context.Context, _ string) ([]*types.Asset, error) {
@@ -185,12 +259,19 @@ func (p *Provider) GetAsset(_ context.Context, sym string) (*types.Asset, error)
 
 // FX rates as market snapshots
 func (p *Provider) GetSnapshot(ctx context.Context, symbol string) (*types.MarketSnapshot, error) {
-	if len(symbol) != 6 { return nil, fmt.Errorf("symbol must be 6-char FX pair") }
+	if len(symbol) != 6 {
+		return nil, fmt.Errorf("symbol must be 6-char FX pair")
+	}
 	pair := symbol[:3] + symbol[3:]
 	form := url.Values{"currency_pair": {pair}}
 	data, err := p.doRequest(ctx, "GET", "/v2/rates/detailed?currency_pair="+pair, form)
-	if err != nil { return nil, err }
-	var resp struct{ BidPrice float64 `json:"client_buy_price,string"`; OfferPrice float64 `json:"client_sell_price,string"` }
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		BidPrice   float64 `json:"client_buy_price,string"`
+		OfferPrice float64 `json:"client_sell_price,string"`
+	}
 	json.Unmarshal(data, &resp)
 	mid := (resp.BidPrice + resp.OfferPrice) / 2
 	return &types.MarketSnapshot{Symbol: symbol, LatestQuote: &types.Quote{BidPrice: resp.BidPrice, AskPrice: resp.OfferPrice}, LatestTrade: &types.Trade{Price: mid}}, nil
@@ -200,26 +281,42 @@ func (p *Provider) GetSnapshots(ctx context.Context, symbols []string) (map[stri
 	result := make(map[string]*types.MarketSnapshot)
 	for _, sym := range symbols {
 		snap, err := p.GetSnapshot(ctx, sym)
-		if err == nil { result[sym] = snap }
+		if err == nil {
+			result[sym] = snap
+		}
 	}
 	return result, nil
 }
 
-func (p *Provider) GetBars(_ context.Context, _, _, _, _ string, _ int) ([]*types.Bar, error) { return nil, errNotSupported }
+func (p *Provider) GetBars(_ context.Context, _, _, _, _ string, _ int) ([]*types.Bar, error) {
+	return nil, errNotSupported
+}
 
 func (p *Provider) GetLatestTrades(ctx context.Context, symbols []string) (map[string]*types.Trade, error) {
 	snaps, err := p.GetSnapshots(ctx, symbols)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	result := make(map[string]*types.Trade)
-	for sym, snap := range snaps { if snap.LatestTrade != nil { result[sym] = snap.LatestTrade } }
+	for sym, snap := range snaps {
+		if snap.LatestTrade != nil {
+			result[sym] = snap.LatestTrade
+		}
+	}
 	return result, nil
 }
 
 func (p *Provider) GetLatestQuotes(ctx context.Context, symbols []string) (map[string]*types.Quote, error) {
 	snaps, err := p.GetSnapshots(ctx, symbols)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	result := make(map[string]*types.Quote)
-	for sym, snap := range snaps { if snap.LatestQuote != nil { result[sym] = snap.LatestQuote } }
+	for sym, snap := range snaps {
+		if snap.LatestQuote != nil {
+			result[sym] = snap.LatestQuote
+		}
+	}
 	return result, nil
 }
 
@@ -231,4 +328,6 @@ func (p *Provider) GetClock(_ context.Context) (*types.MarketClock, error) {
 	return &types.MarketClock{IsOpen: isOpen, Timestamp: now.Format(time.RFC3339)}, nil
 }
 
-func (p *Provider) GetCalendar(_ context.Context, _, _ string) ([]*types.MarketCalendarDay, error) { return nil, errNotSupported }
+func (p *Provider) GetCalendar(_ context.Context, _, _ string) ([]*types.MarketCalendarDay, error) {
+	return nil, errNotSupported
+}

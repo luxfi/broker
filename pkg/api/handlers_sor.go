@@ -123,4 +123,3 @@ func (s *Server) arbDetectorThreshold() float64 {
 	}
 	return 5 // default
 }
-

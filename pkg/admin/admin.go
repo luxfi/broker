@@ -42,7 +42,7 @@ func RoleFromContext(ctx context.Context) string {
 // Admin represents an admin user with hashed credentials.
 type Admin struct {
 	Username     string    `json:"username"`
-	PasswordHash string    `json:"-"` // bcrypt hash
+	PasswordHash string    `json:"-"`    // bcrypt hash
 	Role         string    `json:"role"` // super_admin, admin, reviewer
 	CreatedAt    time.Time `json:"created_at"`
 }
@@ -141,10 +141,10 @@ func (s *Store) ValidateToken(tokenStr string) (*Claims, error) {
 
 // Claims are the JWT payload fields.
 type Claims struct {
-	Sub      string `json:"sub"`      // username
-	Role     string `json:"role"`     // admin role
-	Iat      int64  `json:"iat"`      // issued at
-	Exp      int64  `json:"exp"`      // expires at
+	Sub  string `json:"sub"`  // username
+	Role string `json:"role"` // admin role
+	Iat  int64  `json:"iat"`  // issued at
+	Exp  int64  `json:"exp"`  // expires at
 }
 
 // Middleware returns HTTP middleware that validates admin JWT tokens.

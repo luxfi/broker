@@ -188,11 +188,11 @@ func (p *Provider) CreateOrder(ctx context.Context, _ string, req *types.CreateO
 		return nil, err
 	}
 	var raw struct {
-		OrderID       int    `json:"orderId"`
-		Symbol        string `json:"symbol"`
-		Status        string `json:"status"`
-		ExecutedQty   string `json:"executedQty"`
-		CumQuoteQty   string `json:"cummulativeQuoteQty"`
+		OrderID     int    `json:"orderId"`
+		Symbol      string `json:"symbol"`
+		Status      string `json:"status"`
+		ExecutedQty string `json:"executedQty"`
+		CumQuoteQty string `json:"cummulativeQuoteQty"`
 	}
 	json.Unmarshal(data, &raw)
 	return &types.Order{
@@ -314,13 +314,13 @@ func (p *Provider) GetSnapshot(ctx context.Context, symbol string) (*types.Marke
 		return nil, err
 	}
 	var raw struct {
-		BidPrice  string  `json:"bidPrice"`
-		AskPrice  string  `json:"askPrice"`
-		LastPrice string  `json:"lastPrice"`
-		Volume    string  `json:"volume"`
-		High      string  `json:"highPrice"`
-		Low       string  `json:"lowPrice"`
-		Open      string  `json:"openPrice"`
+		BidPrice  string `json:"bidPrice"`
+		AskPrice  string `json:"askPrice"`
+		LastPrice string `json:"lastPrice"`
+		Volume    string `json:"volume"`
+		High      string `json:"highPrice"`
+		Low       string `json:"lowPrice"`
+		Open      string `json:"openPrice"`
 	}
 	json.Unmarshal(data, &raw)
 	bid, _ := strconv.ParseFloat(raw.BidPrice, 64)
@@ -335,11 +335,11 @@ func (p *Provider) GetSnapshot(ctx context.Context, symbol string) (*types.Marke
 		Symbol: symbol,
 		LatestQuote: &types.Quote{
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			BidPrice: bid, AskPrice: ask,
+			BidPrice:  bid, AskPrice: ask,
 		},
 		LatestTrade: &types.Trade{
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Price: last,
+			Price:     last,
 		},
 		DailyBar: &types.Bar{Open: op, High: hi, Low: lo, Close: last, Volume: vol},
 	}, nil
