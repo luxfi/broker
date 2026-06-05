@@ -1,6 +1,6 @@
 // Package lx is the broker provider for the on-chain Lux DEX
 // (luxfi/dex precompile + native ZAP transport). Works against any chain
-// that ships the DEX precompile -- Lux mainnet, Lux subnets, Liquidity L1.
+// that ships the DEX precompile -- Lux mainnet, Lux chain-VMs, Liquidity L1.
 //
 // Transport is luxfi/zap: zero-copy binary RPC over TCP with opcode
 // dispatch via message flags. No JSON, no gRPC, no HTTP. Every request
@@ -11,9 +11,9 @@
 //
 // Required env vars:
 //
-//	LX_DEX_ADDR    DEX ZAP endpoint (e.g. dex.chain.svc.cluster.local:6336)
-//	LX_MPC_ADDR    MPC ZAP endpoint (e.g. mpc..svc:6337)
-//	LX_USDL_ADDR   USDL ERC-20 address (chain-specific, optional)
+//	LUX_DEX_ADDR    DEX ZAP endpoint (e.g. dex.chain.svc.cluster.local:6336)
+//	LUX_MPC_ADDR    MPC ZAP endpoint (e.g. mpc..svc:6337)
+//	LUX_USDL_ADDR   USDL ERC-20 address (chain-specific, optional)
 package lx
 
 import (
