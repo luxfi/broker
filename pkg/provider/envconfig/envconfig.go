@@ -44,14 +44,14 @@ func RegisterFromEnv(registry *provider.Registry) int {
 	n := 0
 
 	// Lux DEX (luxfi/dex precompile, ZAP transport) — first-class venue
-	// for any chain shipping the DEX precompile (Lux mainnet, Lux subnets,
-	// Liquidity L1). Auto-registers when LX_DEX_ADDR is set or
+	// for any chain shipping the DEX precompile (Lux mainnet, Lux chain-VMs,
+	// Liquidity L1). Auto-registers when LUX_DEX_ADDR is set or
 	// ENVIRONMENT=local.
-	if addr := os.Getenv("LX_DEX_ADDR"); addr != "" || os.Getenv("ENVIRONMENT") == "local" {
+	if addr := os.Getenv("LUX_DEX_ADDR"); addr != "" || os.Getenv("ENVIRONMENT") == "local" {
 		registry.Register(lx.New(lx.Config{
-			DEXAddr:     envOr("LX_DEX_ADDR", lx.DefaultDEXAddr),
-			MPCAddr:     envOr("LX_MPC_ADDR", lx.DefaultMPCAddr),
-			USDLAddress: os.Getenv("LX_USDL_ADDR"),
+			DEXAddr:     envOr("LUX_DEX_ADDR", lx.DefaultDEXAddr),
+			MPCAddr:     envOr("LUX_MPC_ADDR", lx.DefaultMPCAddr),
+			USDLAddress: os.Getenv("LUX_USDL_ADDR"),
 		}))
 		slog.Info("provider registered", "name", "lx", "transport", "zap")
 		n++
