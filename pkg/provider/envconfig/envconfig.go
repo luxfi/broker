@@ -45,7 +45,7 @@ func RegisterFromEnv(registry *provider.Registry) int {
 
 	// Lux DEX (luxfi/dex precompile, ZAP transport) — first-class venue
 	// for any chain shipping the DEX precompile (Lux mainnet, Lux chain-VMs,
-	// Liquidity L1). Auto-registers when LUX_DEX_ADDR is set or
+	// or any downstream tenant L1). Auto-registers when LUX_DEX_ADDR is set or
 	// ENVIRONMENT=local.
 	if addr := os.Getenv("LUX_DEX_ADDR"); addr != "" || os.Getenv("ENVIRONMENT") == "local" {
 		registry.Register(lx.New(lx.Config{
