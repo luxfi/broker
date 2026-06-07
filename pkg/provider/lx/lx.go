@@ -1,6 +1,7 @@
 // Package lx is the broker provider for the on-chain Lux DEX
 // (luxfi/dex precompile + native ZAP transport). Works against any chain
-// that ships the DEX precompile -- Lux mainnet, Lux chain-VMs, Liquidity L1.
+// that ships the DEX precompile -- Lux mainnet, Lux chain-VMs, or any
+// downstream tenant L1.
 //
 // Transport is luxfi/zap: zero-copy binary RPC over TCP with opcode
 // dispatch via message flags. No JSON, no gRPC, no HTTP. Every request
