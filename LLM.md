@@ -1,4 +1,4 @@
-# LLM.md - Hanzo Broker
+# Hanzo Broker
 
 ## Overview
 Go module: github.com/luxfi/broker
