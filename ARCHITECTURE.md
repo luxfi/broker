@@ -372,7 +372,7 @@ Ingress: via hanzoai/gateway at api.lux.network
 
 **Secrets flow:**
 ```
-kms.hanzo.ai (Infisical)
+kms.hanzo.ai (Hanzo KMS)
   -> KMSSecret CRD in broker namespace
   -> K8s Secret: broker-secrets
   -> Pod env: DATABASE_URL, ALPACA_API_KEY, etc.
