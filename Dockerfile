@@ -5,7 +5,7 @@ RUN apk add --no-cache git ca-certificates
 
 ARG GITHUB_TOKEN
 RUN git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
-ENV GOPRIVATE=github.com/luxfi/*,github.com/hanzoai/*
+# No GOPRIVATE — public modules resolve via the immutable public proxy + sumdb.
 
 WORKDIR /app
 COPY go.mod go.sum ./
