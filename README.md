@@ -1,3 +1,5 @@
+<p align="center"><img src=".github/hero.svg" alt="broker" width="880"></p>
+
 # Broker
 
 Multi-venue trading router with smart order routing, pre-trade risk, instant settlement, and real-time market data aggregation across 16 institutional providers.
