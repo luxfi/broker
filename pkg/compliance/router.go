@@ -13,22 +13,15 @@ import (
 	"github.com/luxfi/broker/pkg/auth"
 	"github.com/luxfi/broker/pkg/provider"
 	"github.com/luxfi/broker/pkg/webhook"
-	"github.com/luxfi/compliance/pkg/jube"
 )
 
 // RouterOption configures optional dependencies for the compliance router.
 type RouterOption func(*routerConfig)
 
 type routerConfig struct {
-	jubeClient   *jube.Client
 	scamDB       *ScamDB
 	registry     *provider.Registry
 	webhookStore webhook.Store
-}
-
-// WithJubeClient adds the Jube AML sidecar client for live screening.
-func WithJubeClient(c *jube.Client) RouterOption {
-	return func(cfg *routerConfig) { cfg.jubeClient = c }
 }
 
 // WithScamDB adds the ScamSniffer scam address database for wallet screening.
@@ -51,7 +44,7 @@ func WithWebhookStore(s webhook.Store) RouterOption {
 // The adminStore parameter provides authentication and RBAC. When non-nil,
 // all routes (except /healthz) require a valid admin JWT and write operations
 // are gated by role-based permissions.
-// Optional RouterOption values add the auth store and Jube client.
+// Optional RouterOption values add the scam database, provider registry, and webhook store.
 func NewRouter(store ComplianceStore, opts ...RouterOption) chi.Router {
 	if store == nil {
 		store = NewMemoryStore()
@@ -74,7 +67,7 @@ func NewRouter(store ComplianceStore, opts ...RouterOption) chi.Router {
 	settings := &settingsHandler{store: store}
 	creds := &credentialsHandler{store: store}
 	billing := &billingHandler{}
-	aml := &amlHandler{store: store, jubeClient: cfg.jubeClient, scamDB: cfg.scamDB, webhookStore: cfg.webhookStore}
+	aml := &amlHandler{store: store, scamDB: cfg.scamDB, webhookStore: cfg.webhookStore}
 	apps := &applicationHandler{store: store, registry: cfg.registry, webhookStore: cfg.webhookStore}
 
 	// Compliance endpoints are restricted to the admin org (built-in).

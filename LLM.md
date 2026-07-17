@@ -95,7 +95,7 @@ import `provider`, so `provider` cannot import `provider/alpaca`.
 
 ### Compliance (pkg/compliance/)
 Thin HTTP adapter layer over `github.com/luxfi/compliance` library.
-All domain types, store interface, MemoryStore, Jube client, RBAC, and onboarding
+All domain types, store interface, MemoryStore, RBAC, and onboarding
 logic live in the library. This package re-exports types as aliases and provides:
 - HTTP handlers (chi router with RBAC guards, rate limiting, CORS)
 - PostgresStore (pgx-backed, implements library's ComplianceStore interface)
@@ -103,11 +103,12 @@ logic live in the library. This package re-exports types as aliases and provides
 - Seed data for development mode
 
 Mounted at `/compliance` on the main server. Supports in-memory store (default) or
-PostgreSQL via `DATABASE_URL` env var. Jube client imported from library.
+PostgreSQL via `DATABASE_URL` env var. AML screening uses OFAC SDN + ScamSniffer
+locally, backed by the native `github.com/luxfi/aml` engine (`amld`).
 
 Key endpoint groups under `/compliance`:
 - `/kyc` -- Identity verification, document upload, status tracking
-- `/aml` -- AML screening (Jube integration), risk assessment, flagged review
+- `/aml` -- AML screening (OFAC/ScamSniffer + native luxfi/aml), risk assessment, flagged review
 - `/applications` -- 5-step onboarding flow (SSN hashed with HMAC-SHA256)
 - `/pipelines` + `/sessions` -- Configurable onboarding pipeline engine
 - `/funds` -- Fund management with investor tracking
