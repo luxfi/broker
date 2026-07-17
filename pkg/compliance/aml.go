@@ -7,20 +7,19 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/luxfi/broker/pkg/webhook"
-	"github.com/luxfi/compliance/pkg/jube"
 	"github.com/rs/zerolog/log"
 )
 
 // amlHandler holds AML screening HTTP handler state.
 type amlHandler struct {
 	store        ComplianceStore
-	jubeClient   *jube.Client
 	scamDB       *ScamDB
 	webhookStore webhook.Store
 }
 
-// handleScreen runs an AML screening for an account via the Jube sidecar.
-// If the Jube client is nil, creates a manual pending screening record.
+// handleScreen creates an AML sanctions screening record for an account.
+// The record is queued as pending for manual review; wallet screening below
+// covers automated OFAC/ScamSniffer checks.
 func (h *amlHandler) handleScreen(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		AccountID string `json:"account_id"`
@@ -48,33 +47,6 @@ func (h *amlHandler) handleScreen(w http.ResponseWriter, r *http.Request) {
 		Status:    AMLPending,
 		RiskLevel: RiskLow,
 		Provider:  "manual",
-	}
-
-	// If Jube is configured, run sanctions check.
-	if h.jubeClient != nil {
-		result, err := h.jubeClient.CheckSanctions(r.Context(), req.Name, req.Country)
-		if err != nil {
-			log.Error().Err(err).Str("account", req.AccountID).Msg("aml: jube sanctions check failed")
-			screening.Provider = "jube"
-			screening.Details = "screening service unavailable"
-			// Save as pending for manual review.
-		} else {
-			screening.Provider = "jube"
-			screening.SanctionsHit = result.Hit
-			if result.Hit {
-				screening.Status = AMLFlagged
-				screening.RiskLevel = RiskHigh
-				screening.RiskScore = 80.0
-				if len(result.Matches) > 0 {
-					screening.RiskScore = result.Matches[0].Score * 100
-				}
-				screening.Details = "sanctions list match found"
-			} else {
-				screening.Status = AMLCleared
-				screening.RiskLevel = RiskLow
-				screening.RiskScore = 0
-			}
-		}
 	}
 
 	if err := h.store.SaveAMLScreening(screening); err != nil {
@@ -208,10 +180,11 @@ type walletScreenResponse struct {
 	Risk       string `json:"risk"` // low, medium, high, blocked
 	Sanctioned bool   `json:"sanctioned"`
 	Scam       bool   `json:"scam"`
-	Source     string `json:"source"` // ofac, scamsniffer, jube
+	Source     string `json:"source"` // ofac, scamsniffer
 }
 
-// handleWalletScreen checks a crypto wallet address against OFAC SDN and Jube.
+// handleWalletScreen checks a crypto wallet address against the OFAC SDN list
+// and the ScamSniffer scam-address database.
 func (h *amlHandler) handleWalletScreen(w http.ResponseWriter, r *http.Request) {
 	var req walletScreenRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -278,39 +251,7 @@ func (h *amlHandler) handleWalletScreen(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	// 3. Check via Jube for real-time risk scoring.
-	if h.jubeClient != nil {
-		txReq := jube.TransactionRequest{
-			EntityAnalysisModelID: 1,
-			EntityInstanceEntryPayload: map[string]interface{}{
-				"AccountId":  req.Address,
-				"EntityType": "wallet",
-				"Chain":      req.Chain,
-				"Direction":  req.Direction,
-			},
-		}
-
-		jubeResp, err := h.jubeClient.ScreenTransaction(r.Context(), txReq)
-		if err != nil {
-			log.Error().Err(err).Str("address", req.Address).Msg("aml: jube wallet screen failed")
-			// Jube unavailable -- return OFAC-only result (already low/clear).
-		} else {
-			resp.Source = "jube"
-			switch {
-			case jubeResp.Action == jube.ActionBlock || jubeResp.Score >= 80:
-				resp.Risk = "blocked"
-				resp.Sanctioned = true
-			case jubeResp.Score >= 60:
-				resp.Risk = "high"
-			case jubeResp.Score >= 30:
-				resp.Risk = "medium"
-			default:
-				resp.Risk = "low"
-			}
-		}
-	}
-
-	// Default source if neither OFAC nor Jube set it.
+	// Default source when neither OFAC nor ScamSniffer flagged the address.
 	if resp.Source == "" {
 		resp.Source = "ofac"
 	}
@@ -318,7 +259,7 @@ func (h *amlHandler) handleWalletScreen(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// handleRiskAssessment runs a risk assessment by screening a transaction through Jube.
+// handleRiskAssessment records a transaction risk assessment for manual review.
 func (h *amlHandler) handleRiskAssessment(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		AccountID string  `json:"account_id"`
@@ -347,46 +288,6 @@ func (h *amlHandler) handleRiskAssessment(w http.ResponseWriter, r *http.Request
 		Status:    AMLPending,
 		RiskLevel: RiskLow,
 		Provider:  "manual",
-	}
-
-	if h.jubeClient != nil {
-		txReq := jube.TransactionRequest{
-			EntityAnalysisModelID: 1,
-			EntityInstanceEntryPayload: map[string]interface{}{
-				"AccountId": req.AccountID,
-				"Amount":    req.Amount,
-				"Currency":  req.Currency,
-				"Type":      req.Type,
-			},
-		}
-
-		resp, err := h.jubeClient.ScreenTransaction(r.Context(), txReq)
-		if err != nil {
-			log.Error().Err(err).Str("account", req.AccountID).Msg("aml: jube risk assessment failed")
-		} else {
-			screening.Provider = "jube"
-			screening.RiskScore = resp.Score
-
-			switch {
-			case resp.Score >= 80:
-				screening.RiskLevel = RiskCritical
-			case resp.Score >= 60:
-				screening.RiskLevel = RiskHigh
-			case resp.Score >= 30:
-				screening.RiskLevel = RiskMedium
-			default:
-				screening.RiskLevel = RiskLow
-			}
-
-			switch resp.Action {
-			case jube.ActionBlock:
-				screening.Status = AMLBlocked
-			case jube.ActionReview:
-				screening.Status = AMLFlagged
-			default:
-				screening.Status = AMLCleared
-			}
-		}
 	}
 
 	if err := h.store.SaveAMLScreening(screening); err != nil {

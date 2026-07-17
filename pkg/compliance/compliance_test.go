@@ -2150,9 +2150,9 @@ func TestAMLListByAccountMissingParam(t *testing.T) {
 func TestAMLListFlagged(t *testing.T) {
 	r, store := newTestRouter()
 
-	store.SaveAMLScreening(&AMLScreening{AccountID: "a1", Status: AMLFlagged, Provider: "jube"})
-	store.SaveAMLScreening(&AMLScreening{AccountID: "a2", Status: AMLCleared, Provider: "jube"})
-	store.SaveAMLScreening(&AMLScreening{AccountID: "a3", Status: AMLFlagged, Provider: "jube"})
+	store.SaveAMLScreening(&AMLScreening{AccountID: "a1", Status: AMLFlagged, Provider: "manual"})
+	store.SaveAMLScreening(&AMLScreening{AccountID: "a2", Status: AMLCleared, Provider: "manual"})
+	store.SaveAMLScreening(&AMLScreening{AccountID: "a3", Status: AMLFlagged, Provider: "manual"})
 
 	w := doRequest(r, "GET", "/aml/flagged", nil)
 	if w.Code != http.StatusOK {
@@ -2168,7 +2168,7 @@ func TestAMLListFlagged(t *testing.T) {
 func TestAMLReview(t *testing.T) {
 	r, store := newTestRouter()
 
-	sc := &AMLScreening{AccountID: "a1", Status: AMLFlagged, Provider: "jube"}
+	sc := &AMLScreening{AccountID: "a1", Status: AMLFlagged, Provider: "manual"}
 	store.SaveAMLScreening(sc)
 
 	// Review and clear. reviewed_by comes from JWT context (testadmin), not request body.
@@ -2193,7 +2193,7 @@ func TestAMLReview(t *testing.T) {
 func TestAMLReviewBadDecision(t *testing.T) {
 	r, store := newTestRouter()
 
-	sc := &AMLScreening{AccountID: "a1", Status: AMLFlagged, Provider: "jube"}
+	sc := &AMLScreening{AccountID: "a1", Status: AMLFlagged, Provider: "manual"}
 	store.SaveAMLScreening(sc)
 
 	w := doRequest(r, "POST", "/aml/screenings/"+sc.ID+"/review", map[string]string{
@@ -2208,7 +2208,7 @@ func TestAMLReviewBadDecision(t *testing.T) {
 func TestAMLReviewIgnoresBodyReviewedBy(t *testing.T) {
 	r, store := newTestRouter()
 
-	sc := &AMLScreening{AccountID: "a1", Status: AMLFlagged, Provider: "jube"}
+	sc := &AMLScreening{AccountID: "a1", Status: AMLFlagged, Provider: "manual"}
 	store.SaveAMLScreening(sc)
 
 	// Send reviewed_by in body attempting to spoof identity.
@@ -2852,7 +2852,7 @@ func TestStoreGetRoleByNameNotFound(t *testing.T) {
 func TestSecurityAMLReviewerSpoofingPrevented(t *testing.T) {
 	r, store := newTestRouter()
 
-	sc := &AMLScreening{AccountID: "a1", Status: AMLFlagged, Provider: "jube"}
+	sc := &AMLScreening{AccountID: "a1", Status: AMLFlagged, Provider: "manual"}
 	store.SaveAMLScreening(sc)
 
 	// Attacker tries to claim review was by "bob" but JWT says "test-user-001".
@@ -3067,7 +3067,7 @@ func TestWalletScreenCleanAddress(t *testing.T) {
 		t.Fatal("expected scam=false for clean address")
 	}
 	if resp.Source != "ofac" {
-		t.Fatalf("expected source ofac (no jube configured), got %s", resp.Source)
+		t.Fatalf("expected source ofac (no external provider configured), got %s", resp.Source)
 	}
 }
 

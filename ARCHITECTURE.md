@@ -220,7 +220,7 @@ type Provider interface {
 
 ### Compliance (`pkg/compliance/`)
 
-KYC/KYB onboarding, fund management, eSign, RBAC, reporting. Mounted at `/compliance`. PostgreSQL or in-memory store. Includes Jube AML/fraud integration (`compliance/jube/`) and webhook dispatcher (`compliance/webhooks/`).
+KYC/KYB onboarding, fund management, eSign, RBAC, reporting. Mounted at `/compliance`. PostgreSQL or in-memory store. AML/fraud screening runs against the OFAC SDN list and the ScamSniffer scam-address database, with the native `github.com/luxfi/aml` engine (`amld`) as the deeper risk-scoring backend, plus a webhook dispatcher (`compliance/webhooks/`).
 
 ### Audit (`pkg/audit/`)
 
