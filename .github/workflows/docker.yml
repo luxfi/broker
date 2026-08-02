@@ -61,3 +61,9 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+
+          # The Dockerfile mounts this as id=gh_token to fetch private hanzoai/*
+          # modules. GHCR_TOKEN is the only GitHub credential orgs/luxfi provisions
+          # and must be a real PAT for ghcr.io to accept it, so it can read them.
+          secrets: |
+            gh_token=${{ secrets.GHCR_TOKEN }}
