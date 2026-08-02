@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -15,7 +14,13 @@ import (
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/luxfi/broker/pkg/token"
 )
+
+// alg is the only signature algorithm this package issues or accepts. The
+// verifier never dispatches on the token's own header — it requires this.
+const alg = "HS256"
 
 // contextKey is an unexported type for context keys in this package.
 type contextKey string
@@ -99,29 +104,37 @@ func (s *Store) Authenticate(username, password string) (string, error) {
 }
 
 // ValidateToken validates a JWT and returns the claims.
+//
+// Every segment is decoded canonically: a token is its bytes, and exactly one
+// string encodes those bytes. Accepting a second spelling would hand out one
+// credential under several identities, which is what breaks a denylist.
 func (s *Store) ValidateToken(tokenStr string) (*Claims, error) {
 	parts := strings.Split(tokenStr, ".")
 	if len(parts) != 3 {
 		return nil, fmt.Errorf("invalid token format")
 	}
 
-	// Verify signature using constant-time comparison to prevent timing attacks
-	signingInput := parts[0] + "." + parts[1]
-	expectedSig := sign([]byte(signingInput), s.secret)
-	sigBytes, err := base64.RawURLEncoding.DecodeString(parts[2])
+	headerJSON, err := token.Decode(parts[0])
+	if err != nil {
+		return nil, fmt.Errorf("invalid token header")
+	}
+	var header struct {
+		Alg string `json:"alg"`
+	}
+	if err := json.Unmarshal(headerJSON, &header); err != nil || header.Alg != alg {
+		return nil, fmt.Errorf("invalid token header")
+	}
+
+	// Constant-time compare of raw MAC bytes — never of their text.
+	sig, err := token.Decode(parts[2])
 	if err != nil {
 		return nil, fmt.Errorf("invalid token signature")
 	}
-	expectedBytes, err := base64.RawURLEncoding.DecodeString(expectedSig)
-	if err != nil {
-		return nil, fmt.Errorf("invalid token signature")
-	}
-	if !hmac.Equal(sigBytes, expectedBytes) {
+	if !hmac.Equal(sig, sign([]byte(parts[0]+"."+parts[1]), s.secret)) {
 		return nil, fmt.Errorf("invalid token signature")
 	}
 
-	// Decode claims
-	claimsJSON, err := base64.RawURLEncoding.DecodeString(parts[1])
+	claimsJSON, err := token.Decode(parts[1])
 	if err != nil {
 		return nil, fmt.Errorf("invalid token payload")
 	}
@@ -179,7 +192,7 @@ func Middleware(store *Store) func(http.Handler) http.Handler {
 }
 
 func (s *Store) generateJWT(admin *Admin) (string, error) {
-	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
+	header := token.Encode([]byte(`{"alg":"` + alg + `","typ":"JWT"}`))
 
 	claims := Claims{
 		Sub:  admin.Username,
@@ -188,22 +201,19 @@ func (s *Store) generateJWT(admin *Admin) (string, error) {
 		Exp:  time.Now().Add(24 * time.Hour).Unix(),
 	}
 	claimsJSON, _ := json.Marshal(claims)
-	payload := base64.RawURLEncoding.EncodeToString(claimsJSON)
+	payload := token.Encode(claimsJSON)
 
 	signingInput := header + "." + payload
-	signature := sign([]byte(signingInput), s.secret)
-
-	return signingInput + "." + signature, nil
+	return signingInput + "." + token.Encode(sign([]byte(signingInput), s.secret)), nil
 }
 
-func sign(data, secret []byte) string {
+// sign returns the raw MAC. Bytes are the value; encoding happens only at the
+// wire boundary, so nothing downstream can compare or key on the text.
+func sign(data, secret []byte) []byte {
 	mac := hmac.New(sha256.New, secret)
 	mac.Write(data)
-	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	return mac.Sum(nil)
 }
-
-// hashPassword is kept only for backward-compatible token validation.
-// New passwords are always stored as bcrypt hashes via AddAdmin.
 
 // LoginHandler returns an http.HandlerFunc that accepts POST {username, password}
 // and returns {token: "jwt..."} on success.
