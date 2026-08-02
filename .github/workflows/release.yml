@@ -22,6 +22,28 @@ permissions:
 jobs:
   goreleaser:
     runs-on: lux-build-amd64
+    env:
+      # github.com/hanzoai/* is PRIVATE, so it must be fetched direct from GitHub.
+      # Without this the public proxy answers instead, and for commerce@v1.36.5 it
+      # still serves the bits from before the repo went private -- a different zip
+      # than the tag now points at. go.sum records the direct hash, so the release
+      # died in goreleaser's `go mod tidy` hook:
+      #
+      #   verifying github.com/hanzoai/commerce@v1.36.5: checksum mismatch
+      #     downloaded: h1:RS6pjCKOAjigi…   (proxy — pre-privatisation)
+      #     go.sum:     h1:DjGiR7NSOZYD+…   (direct — the tag today)
+      #   SECURITY ERROR
+      #
+      # ⚠️ go.sum is CORRECT here; do not "fix" it to the proxy value. Verified by
+      # measuring both ways: with GOPRIVATE set, `go mod download` exits 0 against
+      # the committed go.sum. sum.golang.org holds the proxy value, so a
+      # go.sum-vs-sumdb audit points the wrong way for a module that went private
+      # AFTER it was notarised -- the polarity has to be measured, not assumed.
+      #
+      # luxfi/* is deliberately NOT listed: it is public and must keep resolving
+      # through the proxy, which is what pins it to bytes the checksum database
+      # signed.
+      GOPRIVATE: github.com/hanzoai/*
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,6 +52,21 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+
+      # Direct fetch of a private module needs a real GitHub credential. orgs/luxfi
+      # provisions GHCR_TOKEN, which must be a genuine PAT for ghcr.io to accept it,
+      # so it can read private hanzoai/* too. `secrets.GITHUB_TOKEN` cannot: on a
+      # self-hosted pool that is git.hanzo.ai's token, and github.com has never
+      # seen it.
+      - name: Credential for private hanzoai modules
+        env:
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: |
+          if [ -z "${GHCR_TOKEN:-}" ]; then
+            echo "::error::GHCR_TOKEN is unset, so private github.com/hanzoai/* modules cannot be fetched. orgs/luxfi provisions GHCR_USER + GHCR_TOKEN."
+            exit 1
+          fi
+          git config --global url."https://x-access-token:${GHCR_TOKEN}@github.com/".insteadOf "https://github.com/"
 
       - name: Install syft for SBOM
         run: |
@@ -44,4 +81,9 @@ jobs:
           version: "~> v2"
           args: release --clean
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # goreleaser publishes a GitHub Release, so this must be a github.com
+          # credential. On a lux self-hosted pool `secrets.GITHUB_TOKEN` is minted
+          # by git.hanzo.ai and github.com has never seen it -- the same reason the
+          # ghcr.io logins across luxfi were failing. GHCR_TOKEN is the real PAT
+          # orgs/luxfi provisions.
+          GITHUB_TOKEN: ${{ secrets.GHCR_TOKEN }}
