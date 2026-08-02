@@ -9,11 +9,51 @@ on:
 jobs:
   test:
     runs-on: lux-build-amd64
+    env:
+      # github.com/hanzoai/* is PRIVATE, so it must be fetched direct from GitHub.
+      # Without this the public proxy answers instead, and for commerce@v1.36.5 it
+      # still serves the bits from before the repo went private -- a different zip
+      # than the tag now points at. go.sum records the direct hash, so `go mod
+      # download` failed here with:
+      #
+      #   verifying github.com/hanzoai/commerce@v1.36.5: checksum mismatch
+      #     downloaded: h1:RS6pjCKOAjigi...   (proxy -- pre-privatisation)
+      #     go.sum:     h1:DjGiR7NSOZYD+...   (direct -- the tag today)
+      #   SECURITY ERROR
+      #
+      # ⚠️ go.sum is CORRECT; do not "fix" it to the proxy value. sum.golang.org
+      # holds the proxy value, so a go.sum-vs-sumdb audit points the WRONG way for
+      # a module that went private AFTER it was notarised -- the polarity has to
+      # be measured per module, not assumed.
+      #
+      # luxfi/* is deliberately NOT listed: it is public and must keep resolving
+      # through the proxy, which is what pins it to bytes the checksum database
+      # signed.
+      #
+      # Dockerfile and release.yml already carried this; ci.yml was the one place
+      # left without it.
+      GOPRIVATE: github.com/hanzoai/*
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-go@v5
       with:
         go-version-file: go.mod
+
+    # Direct fetch of a private module needs a real GitHub credential. orgs/luxfi
+    # provisions GHCR_TOKEN, which must be a genuine PAT for ghcr.io to accept it,
+    # so it can read private hanzoai/* too. `secrets.GITHUB_TOKEN` cannot: on a
+    # self-hosted pool that is git.hanzo.ai's token, and github.com has never
+    # seen it.
+    - name: Credential for private hanzoai modules
+      env:
+        GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+      run: |
+        if [ -z "${GHCR_TOKEN:-}" ]; then
+          echo "::error::GHCR_TOKEN is unset, so private github.com/hanzoai/* modules cannot be fetched. orgs/luxfi provisions GHCR_USER + GHCR_TOKEN."
+          exit 1
+        fi
+        git config --global url."https://x-access-token:${GHCR_TOKEN}@github.com/".insteadOf "https://github.com/"
+
     - run: go mod download
     - run: go test ./...
     - run: go build ./...
