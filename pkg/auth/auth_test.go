@@ -1,9 +1,21 @@
 package auth
 
 import (
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/luxfi/broker/pkg/token"
 )
 
 func okHandler(w http.ResponseWriter, r *http.Request) {
@@ -155,4 +167,109 @@ func searchString(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// --- IAM JWT canonicality (the mounted path: pkg/api and pkg/compliance) ---
+
+// newJWKS starts a JWKS endpoint for a fresh RSA key and returns its URL
+// alongside a signer that mints canonical RS256 tokens against it.
+func newJWKS(t *testing.T) (jwksURL string, mint func(claims string) string, key *rsa.PrivateKey) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The JWKS cache is package-level and keyed on kid alone, so tests that
+	// reuse a kid would serve each other's keys. (Operationally this also
+	// means a key rotated in place under an unchanged kid is not picked up
+	// until the one-hour cache expiry.)
+	kid := t.Name()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"keys": []map[string]string{{
+			"kty": "RSA", "kid": kid,
+			"n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()),
+			"e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes()),
+		}}})
+	}))
+	t.Cleanup(srv.Close)
+
+	mint = func(claims string) string {
+		hdr := token.Encode([]byte(`{"alg":"RS256","typ":"JWT","kid":"` + kid + `"}`))
+		body := hdr + "." + token.Encode([]byte(claims))
+		digest := sha256.Sum256([]byte(body))
+		sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return body + "." + token.Encode(sig)
+	}
+	return srv.URL, mint, key
+}
+
+// An RSA-2048 signature is 256 bytes carried in 342 base64url characters:
+// 2052 bits of room for 2048 bits of signature. The 4 spare bits in the final
+// character mean sixteen distinct strings decode to the identical signature.
+func TestValidateJWT_AcceptsExactlyOneSpelling(t *testing.T) {
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
+	jwksURL, mint, _ := newJWKS(t)
+	tok := mint(`{"sub":"u1","iss":"i","exp":` + strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10) + `}`)
+
+	dot := strings.LastIndex(tok, ".")
+	sig := tok[dot+1:]
+	if len(sig) != 342 {
+		t.Fatalf("signature segment is %d chars, want 342 for a 256-byte signature", len(sig))
+	}
+	want, err := base64.RawURLEncoding.DecodeString(sig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := strings.IndexByte(alphabet, sig[len(sig)-1])
+
+	accepted, ids := 0, map[string]bool{}
+	for b := 0; b < 16; b++ {
+		v := tok[:dot+1] + sig[:len(sig)-1] + string(alphabet[(last&^15)|b])
+		got, err := base64.RawURLEncoding.DecodeString(v[dot+1:])
+		if err != nil || string(got) != string(want) {
+			t.Fatalf("test premise: respelling %d does not decode to the same signature", b)
+		}
+		ids[v] = true
+		if _, err := ValidateJWT(v, jwksURL); err == nil {
+			accepted++
+			if v != tok {
+				t.Errorf("accepted non-canonical spelling ...%q", v[len(v)-4:])
+			}
+		}
+	}
+	if len(ids) != 16 {
+		t.Fatalf("built %d distinct strings, want 16", len(ids))
+	}
+	if accepted != 1 {
+		t.Fatalf("%d of 16 spellings authenticate as the same credential, want exactly 1", accepted)
+	}
+}
+
+func TestValidateJWT_RejectsWhitespaceInSegments(t *testing.T) {
+	jwksURL, mint, _ := newJWKS(t)
+	tok := mint(`{"sub":"u1","exp":` + strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10) + `}`)
+	dot := strings.LastIndex(tok, ".")
+
+	for _, v := range []string{tok + "\n", tok[:dot+1] + "\n" + tok[dot+1:], "\n" + tok} {
+		if _, err := ValidateJWT(v, jwksURL); err == nil {
+			t.Errorf("accepted a token segment containing CR/LF")
+		}
+	}
+}
+
+func TestValidateJWT_AcceptsCanonicalToken(t *testing.T) {
+	jwksURL, mint, _ := newJWKS(t)
+	tok := mint(`{"sub":"u1","exp":` + strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10) + `}`)
+
+	claims, err := ValidateJWT(tok, jwksURL)
+	if err != nil {
+		t.Fatalf("canonical token rejected: %v", err)
+	}
+	if ClaimStr(claims, "sub") != "u1" {
+		t.Fatalf("sub = %q, want u1", ClaimStr(claims, "sub"))
+	}
 }

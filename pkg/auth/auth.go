@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/luxfi/broker/pkg/token"
 )
 
 // jwksCache caches RSA public keys from IAM JWKS, keyed by kid.
@@ -113,7 +115,7 @@ func ValidateJWT(tokenStr, jwksURL string) (map[string]interface{}, error) {
 		return nil, fmt.Errorf("malformed token")
 	}
 
-	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	headerBytes, err := token.Decode(parts[0])
 	if err != nil {
 		return nil, fmt.Errorf("bad header")
 	}
@@ -133,7 +135,7 @@ func ValidateJWT(tokenStr, jwksURL string) (map[string]interface{}, error) {
 		return nil, err
 	}
 
-	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
+	sig, err := token.Decode(parts[2])
 	if err != nil {
 		return nil, fmt.Errorf("bad signature")
 	}
@@ -143,7 +145,7 @@ func ValidateJWT(tokenStr, jwksURL string) (map[string]interface{}, error) {
 		return nil, fmt.Errorf("signature invalid")
 	}
 
-	claimBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	claimBytes, err := token.Decode(parts[1])
 	if err != nil {
 		return nil, fmt.Errorf("bad claims")
 	}
@@ -210,6 +212,10 @@ func getJWKSKey(jwksURL, kid string) (*rsa.PublicKey, error) {
 		if k.Kty != "RSA" {
 			continue
 		}
+		// Deliberately the lenient decoder, not token.Decode: n and e are
+		// public key material from the trusted IAM endpoint, so every
+		// spelling yields the same key and canonicality buys nothing —
+		// while rejecting one would take the whole JWKS offline.
 		nBytes, err := base64.RawURLEncoding.DecodeString(k.N)
 		if err != nil {
 			continue

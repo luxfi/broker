@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/luxfi/broker/pkg/token"
 )
 
 const testSecret = "test-jwt-secret-32bytes-minimum!"
@@ -174,8 +176,14 @@ func TestValidateToken_TamperedSignature(t *testing.T) {
 
 	token, _ := s.Authenticate("alice", "pass123")
 
-	// Replace last character of signature to tamper with it
-	tampered := token[:len(token)-1] + "X"
+	// Replace the last character of the signature with a different one.
+	// Picking a fixed letter would silently be a no-op whenever the token
+	// already ends in it, so derive the substitute from what is there.
+	sub := byte('A')
+	if token[len(token)-1] == sub {
+		sub = 'B'
+	}
+	tampered := token[:len(token)-1] + string(sub)
 
 	_, err := s.ValidateToken(tampered)
 	if err == nil {
@@ -501,4 +509,159 @@ func signForTest(data, secret []byte) string {
 	mac := hmac.New(sha256.New, secret)
 	mac.Write(data)
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+// --- Token canonicality ---
+//
+// An HMAC-SHA256 signature is 32 bytes carried in 43 base64url characters:
+// 258 bits of room for 256 bits of MAC. The 2 spare bits in the final
+// character mean four distinct strings decode to the identical MAC. A lenient
+// decoder accepts all four, so one credential arrives wearing four names and
+// every string-keyed denylist, audit record and rate-limit bucket splits.
+
+// respellSig returns the four token strings whose signature segments decode
+// to the same MAC bytes, canonical first.
+func respellSig(t *testing.T, tok string) []string {
+	t.Helper()
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+	dot := strings.LastIndex(tok, ".")
+	sig := tok[dot+1:]
+	if len(sig) != 43 {
+		t.Fatalf("signature segment is %d chars, want 43 for a 32-byte MAC", len(sig))
+	}
+	want, err := base64.RawURLEncoding.DecodeString(sig)
+	if err != nil {
+		t.Fatalf("decode signature: %v", err)
+	}
+	last := strings.IndexByte(alphabet, sig[len(sig)-1])
+	out := []string{tok}
+	for b := 0; b < 4; b++ {
+		v := tok[:dot+1] + sig[:len(sig)-1] + string(alphabet[(last&^3)|b])
+		if v == tok {
+			continue
+		}
+		got, err := base64.RawURLEncoding.DecodeString(v[dot+1:])
+		if err != nil || !hmac.Equal(got, want) {
+			t.Fatalf("test premise: respelling %q does not decode to the same MAC", v[len(v)-4:])
+		}
+		out = append(out, v)
+	}
+	if len(out) != 4 {
+		t.Fatalf("built %d spellings, want 4", len(out))
+	}
+	return out
+}
+
+func TestValidateToken_AcceptsExactlyOneSpelling(t *testing.T) {
+	s := NewStore(testSecret)
+	if err := s.AddAdmin("root", "hunter2hunter2", "super_admin"); err != nil {
+		t.Fatal(err)
+	}
+	tok, err := s.Authenticate("root", "hunter2hunter2")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	accepted := 0
+	for i, v := range respellSig(t, tok) {
+		_, err := s.ValidateToken(v)
+		if err == nil {
+			accepted++
+			if i != 0 {
+				t.Errorf("accepted non-canonical spelling ...%q", v[len(v)-4:])
+			}
+		}
+	}
+	if accepted != 1 {
+		t.Fatalf("%d of 4 spellings authenticate as the same credential, want exactly 1", accepted)
+	}
+}
+
+// TestValidateToken_RevocationHoldsAcrossSpellings is the operational failure
+// the malleability caused: an operator revokes the token they were handed and
+// the holder keeps using the other three. Revocation is keyed on token.ID —
+// the hash of the bytes — never on the submitted string.
+func TestValidateToken_RevocationHoldsAcrossSpellings(t *testing.T) {
+	s := NewStore(testSecret)
+	if err := s.AddAdmin("root", "hunter2hunter2", "super_admin"); err != nil {
+		t.Fatal(err)
+	}
+	tok, err := s.Authenticate("root", "hunter2hunter2")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	revoked := map[string]bool{token.ID(tok): true}
+	authenticates := func(submitted string) bool {
+		if _, err := s.ValidateToken(submitted); err != nil {
+			return false
+		}
+		return !revoked[token.ID(submitted)]
+	}
+
+	if authenticates(tok) {
+		t.Fatal("revoked token still authenticates in its canonical spelling")
+	}
+	for _, v := range respellSig(t, tok)[1:] {
+		if authenticates(v) {
+			t.Errorf("revoked token still authenticates as ...%q", v[len(v)-4:])
+		}
+	}
+}
+
+func TestValidateToken_RejectsWhitespaceInSegments(t *testing.T) {
+	s := NewStore(testSecret)
+	if err := s.AddAdmin("root", "hunter2hunter2", "super_admin"); err != nil {
+		t.Fatal(err)
+	}
+	tok, _ := s.Authenticate("root", "hunter2hunter2")
+	dot := strings.LastIndex(tok, ".")
+
+	// Go's base64 decoder skips \r and \n wherever they appear, so these
+	// carry the same MAC bytes. Reachable over any carrier that permits them
+	// (query string, JSON body, cookie) even though HTTP headers do not.
+	for _, v := range []string{
+		tok[:dot+1] + "\n" + tok[dot+1:],
+		tok + "\n",
+		tok[:dot+10] + "\r\n" + tok[dot+10:],
+	} {
+		if _, err := s.ValidateToken(v); err == nil {
+			t.Errorf("accepted a signature segment containing CR/LF")
+		}
+	}
+}
+
+// The verifier is HMAC-SHA256 and never dispatches on the token's own header,
+// so a foreign alg is rejected outright rather than honoured.
+func TestValidateToken_RejectsForeignAlg(t *testing.T) {
+	s := NewStore(testSecret)
+	if err := s.AddAdmin("root", "hunter2hunter2", "super_admin"); err != nil {
+		t.Fatal(err)
+	}
+
+	header := token.Encode([]byte(`{"alg":"none","typ":"JWT"}`))
+	claimsJSON, _ := json.Marshal(Claims{Sub: "root", Role: "super_admin", Exp: time.Now().Add(time.Hour).Unix()})
+	signingInput := header + "." + token.Encode(claimsJSON)
+	forged := signingInput + "." + token.Encode(sign([]byte(signingInput), s.secret))
+
+	if _, err := s.ValidateToken(forged); err == nil {
+		t.Fatal("accepted a correctly-signed token declaring alg=none")
+	}
+}
+
+func TestValidateToken_RejectsEmptySegments(t *testing.T) {
+	s := NewStore(testSecret)
+	if err := s.AddAdmin("root", "hunter2hunter2", "super_admin"); err != nil {
+		t.Fatal(err)
+	}
+	tok, _ := s.Authenticate("root", "hunter2hunter2")
+	parts := strings.Split(tok, ".")
+
+	for i := range parts {
+		blanked := append([]string(nil), parts...)
+		blanked[i] = ""
+		if _, err := s.ValidateToken(strings.Join(blanked, ".")); err == nil {
+			t.Errorf("accepted a token with segment %d empty", i)
+		}
+	}
 }

@@ -77,11 +77,41 @@ if am, ok := p.(provider.AccountManager); ok { ... }
 - `handlers_extended.go` -- All capability-based route handlers
 - `handlers_funding.go` -- Payment processor deposit/withdraw
 
+### Bearer token encoding (pkg/token/)
+One canonical text encoding for every bearer credential: unpadded base64url,
+and nothing else. `token.Decode` rejects any other spelling of the same bytes;
+`token.ID` is the hash to key revocation, audit, dedup and rate limiting on.
+
+The rule exists because Go's base64 decoders are lenient in two independent
+ways, and a lenient decoder hands out one credential under several names:
+
+- the unused low bits of the final quantum are ignored, so an HS256 signature
+  (32 bytes in 43 chars, 2 slack bits) has 4 spellings and an RS256 signature
+  (256 bytes in 342 chars, 4 slack bits) has 16;
+- `\r` and `\n` are skipped wherever they appear, which `Encoding.Strict()`
+  does **not** close — so Strict alone is not a fix.
+
+`Decode` round-trips instead: a segment is canonical exactly when it is the
+encoding of the bytes it decodes to. One predicate, nothing to enumerate.
+Non-canonical input is rejected, never normalized.
+
+Both JWT verifiers decode every segment through it. The one deliberate
+exception is the JWKS `n`/`e` in `pkg/auth` — public key material from the
+trusted IAM endpoint, where every spelling yields the same key and rejecting
+one would take the whole JWKS offline.
+
+Never key a denylist, audit record, dedup cache or rate-limit bucket on a
+submitted token string, and never write the token itself to a log or a column.
+
 ### Admin Auth (pkg/admin/)
-- `admin.go` -- JWT auth (HMAC-SHA256), password hashing (SHA-256 + salt, never plaintext)
-- Admin users configured via ADMIN_USERNAME + ADMIN_PASSWORD env vars
-- JWT secret from ADMIN_SECRET env var (required for production)
-- Middleware validates Bearer tokens, sets X-Admin-User/X-Admin-Role headers
+- `admin.go` -- HS256 JWT; passwords bcrypt cost 12, never plaintext
+- `NewStore(jwtSecret)` takes the signing secret from the caller; source it
+  from KMS. No env var, no default, no fallback.
+- The verifier requires `alg: HS256` and never dispatches on the token header
+- Middleware **strips** X-Admin-User/X-Admin-Role and passes claims through
+  the request context — claims never travel as headers
+- **Not mounted.** Nothing imports this package; `cmd/brokerd` does not serve
+  an admin surface. Wire it up and the whole path goes live at once.
 
 ### Provider Registration from Env (pkg/provider/envconfig/)
 `envconfig.RegisterFromEnv(registry)` reads all 16 provider env vars and registers
