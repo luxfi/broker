@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   goreleaser:
-    runs-on: lux-build-amd64
+    runs-on: [lux-build-linux-amd64]
     env:
       # github.com/hanzoai/* is PRIVATE, so it must be fetched direct from GitHub.
       # Without this the public proxy answers instead, and for commerce@v1.36.5 it
