@@ -355,4 +355,4 @@ broker/
 
 ## License
 
-Copyright 2024-2026 Lux Partners Limited. All rights reserved.
+Copyright 2024-2026 Lux Industries Inc. All rights reserved.
