@@ -147,7 +147,6 @@ Auth: `Authorization: Bearer <api-key>` or `X-API-Key: <api-key>` header. Health
 | GET | `/v1/accounts/{provider}/{accountId}/recipient-banks` | List wire recipients |
 | DELETE | `/v1/accounts/{provider}/{accountId}/recipient-banks/{bankId}` | Remove wire recipient |
 
-### Journals (Inter-Account Transfers)
 
 | Method | Path | Description |
 |--------|------|-------------|
